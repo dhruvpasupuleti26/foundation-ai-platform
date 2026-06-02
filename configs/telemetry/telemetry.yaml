@@ -1,0 +1,10 @@
+telemetry:
+  request_labels:
+    - request_id
+    - model
+    - capability
+  metrics:
+    latency_ms: true
+    token_counts: true
+    cache_hits: true
+    errors: true

@@ -1,0 +1,21 @@
+models:
+  - name: general-chat
+    version: "1.0.0"
+    family: qwen
+    engine: vllm
+    capabilities:
+      - chat
+      - reasoning
+    memory_requirement_gb: 24
+    ownership: platform
+    status: registered
+  - name: embedding-service
+    version: "1.0.0"
+    family: mistral
+    engine: huggingface-transformers
+    capabilities:
+      - embedding
+      - classification
+    memory_requirement_gb: 12
+    ownership: platform
+    status: registered

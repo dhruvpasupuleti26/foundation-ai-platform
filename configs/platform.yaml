@@ -1,0 +1,32 @@
+platform:
+  name: foundation-ai-platform
+  environment: development
+
+gateway:
+  host: 0.0.0.0
+  port: 8000
+  enable_metrics: true
+
+database:
+  engine: sqlite
+  path: ./data/platform.db
+
+plugins:
+  enabled:
+    - qwen
+    - llama
+    - mistral
+    - deepseek
+
+serving:
+  default_engine: vllm
+  supported_engines:
+    - vllm
+    - huggingface-transformers
+
+telemetry:
+  provider: database
+  prometheus:
+    enabled: true
+  opentelemetry:
+    enabled: false
