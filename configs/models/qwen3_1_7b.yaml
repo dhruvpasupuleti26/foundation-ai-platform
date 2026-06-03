@@ -1,0 +1,12 @@
+models:
+  - name: qwen3-1.7b-chat-local
+    version: "1.0.0"
+    family: qwen
+    engine: huggingface-transformers
+    capabilities:
+      - chat
+      - reasoning
+    memory_requirement_gb: 8
+    ownership: platform
+    metadata:
+      source_model_id: Qwen/Qwen3-1.7B

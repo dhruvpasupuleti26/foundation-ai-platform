@@ -1,0 +1,8 @@
+routing:
+  default_strategy: first_healthy_match
+  capability_priorities:
+    chat:
+      - reasoning
+      - tool_calling
+    embedding:
+      - classification

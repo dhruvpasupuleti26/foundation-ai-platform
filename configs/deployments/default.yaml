@@ -1,0 +1,6 @@
+deployments:
+  defaults:
+    min_replicas: 0
+    max_replicas: 1
+    health_check_interval_seconds: 30
+    idle_timeout_seconds: 900

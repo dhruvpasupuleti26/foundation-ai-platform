@@ -1,0 +1,16 @@
+lifecycle:
+  states:
+    - HOT
+    - WARM
+    - COLD
+    - FAILED
+  transitions:
+    HOT:
+      idle_timeout_seconds: 300
+      next_state: WARM
+    WARM:
+      idle_timeout_seconds: 900
+      next_state: COLD
+    COLD:
+      idle_timeout_seconds: 0
+      next_state: COLD

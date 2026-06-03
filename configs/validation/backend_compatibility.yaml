@@ -1,0 +1,24 @@
+architectures:
+  vllm_native:
+    - LlamaForCausalLM
+    - MistralForCausalLM
+    - Qwen2ForCausalLM
+    - Qwen3ForCausalLM
+    - GemmaForCausalLM
+  tgi:
+    - GPTNeoXForCausalLM
+    - FalconForCausalLM
+    - OPTForCausalLM
+    - BloomForCausalLM
+    - T5ForConditionalGeneration
+  transformers_fallback:
+    - LlamaForCausalLM
+    - MistralForCausalLM
+    - Qwen2ForCausalLM
+    - Qwen3ForCausalLM
+    - GemmaForCausalLM
+    - GPTNeoXForCausalLM
+    - FalconForCausalLM
+    - OPTForCausalLM
+    - BloomForCausalLM
+    - T5ForConditionalGeneration

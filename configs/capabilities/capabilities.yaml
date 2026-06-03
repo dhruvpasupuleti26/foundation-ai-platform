@@ -1,0 +1,13 @@
+capabilities:
+  chat:
+    description: Conversational generation
+  reasoning:
+    description: Extended reasoning workflows
+  tool_calling:
+    description: Structured tool invocation support
+  embedding:
+    description: Vector embedding generation
+  evaluation:
+    description: Model evaluation tasks
+  classification:
+    description: Structured classification tasks
