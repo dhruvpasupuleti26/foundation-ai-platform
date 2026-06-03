@@ -1,0 +1,10 @@
+placements:
+  cpu:
+    description: Portable fallback placement for local development and CI.
+    preferred_dtype: float32
+  mps:
+    description: Apple Metal MPS placement for Apple Silicon developer hosts.
+    preferred_dtype: float16
+  cuda:
+    description: NVIDIA CUDA placement for Linux GPU hosts.
+    preferred_dtype: float16

@@ -1,0 +1,68 @@
+services:
+  gateway:
+    build:
+      context: .
+      dockerfile: deployment/Dockerfile.gateway
+    environment:
+      LLM_PLATFORM__DATABASE__ENGINE: sqlite
+      LLM_PLATFORM__DATABASE__PATH: /app/data/platform.db
+      LLM_PLATFORM__SERVING__IMPLEMENTATION: vllm
+      LLM_PLATFORM__SERVING__VLLM__BASE_URL: http://vllm:8000
+      LLM_PLATFORM__SERVING__VLLM__API_KEY: ${VLLM_API_KEY:-token-abc123}
+    volumes:
+      - ./configs:/app/configs
+      - ./data:/app/data
+    ports:
+      - "${GATEWAY_PORT:-8000}:8000"
+    depends_on:
+      - vllm
+    command:
+      - /bin/sh
+      - -lc
+      - |
+        python scripts/bootstrap.py && \
+        uvicorn llm_platform.gateway.app:create_default_app --factory --host 0.0.0.0 --port 8000
+
+  vllm:
+    image: vllm/vllm-openai:latest
+    profiles: ["cuda"]
+    ipc: host
+    environment:
+      HUGGING_FACE_HUB_TOKEN: ${HUGGING_FACE_HUB_TOKEN:-}
+      HF_HOME: /cache/huggingface
+    volumes:
+      - ./data/hf-cache:/cache/huggingface
+    ports:
+      - "${VLLM_PORT:-8001}:8000"
+    command: >
+      --model ${VLLM_MODEL:-Qwen/Qwen2.5-7B-Instruct}
+      --host 0.0.0.0
+      --port 8000
+      --dtype auto
+      --enable-prefix-caching
+      --api-key ${VLLM_API_KEY:-token-abc123}
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+
+  tgi:
+    image: ghcr.io/huggingface/text-generation-inference:latest
+    profiles: ["cuda"]
+    environment:
+      HUGGING_FACE_HUB_TOKEN: ${HUGGING_FACE_HUB_TOKEN:-}
+    volumes:
+      - ./data/hf-cache:/data
+    ports:
+      - "${TGI_PORT:-8002}:80"
+    command:
+      - --model-id
+      - ${TGI_MODEL:-Qwen/Qwen2.5-7B-Instruct}
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s

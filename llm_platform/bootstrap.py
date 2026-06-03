@@ -1,4 +1,9 @@
-"""Application bootstrap and dependency wiring."""
+"""Application bootstrap and dependency wiring.
+
+This module assembles the platform from validated configuration and interface-
+backed implementations. It is intentionally explicit rather than magical so the
+wiring remains understandable as the repository grows.
+"""
 
 from __future__ import annotations
 
@@ -36,7 +41,7 @@ from llm_platform.schemas.config import PlatformConfig
 from llm_platform.services.chat import ChatService
 from llm_platform.services.health import HealthService
 from llm_platform.services.model_management import ModelManagementService
-from llm_platform.serving.fake_model_server import FakeModelServer
+from llm_platform.serving.factory import build_model_server
 from llm_platform.telemetry.providers import MemoryTelemetryProvider, NoOpTelemetryProvider, RepositoryTelemetryProvider
 from llm_platform.utils.config_loader import ConfigLoader
 
@@ -46,7 +51,22 @@ if TYPE_CHECKING:
 
 @dataclass(slots=True)
 class PlatformApplication:
-    """Assembled platform dependencies."""
+    """Assembled platform dependencies.
+
+    Attributes:
+        config: Validated platform configuration.
+        registry: Registry service used across the application.
+        router: Capability-based routing implementation.
+        lifecycle_manager: Lifecycle manager for deployment state.
+        telemetry_provider: Active telemetry sink.
+        compatibility_checker: Validation layer for model compatibility.
+        model_server: Active serving backend implementation.
+        plugin_manager: Registered plugin manager instance.
+        model_management_service: Service for registration and deployment
+            workflows.
+        chat_service: Service for completion workflows.
+        health_service: Service for health and metrics summary.
+    """
 
     config: PlatformConfig
     registry: IRegistry
@@ -65,13 +85,28 @@ class PlatformApplicationBuilder:
     """Create a platform application from configuration."""
 
     def __init__(self, config_loader: ConfigLoader | None = None) -> None:
+        """Initialize the application builder.
+
+        Args:
+            config_loader: Optional configuration loader override for tests or
+                custom environments.
+        """
         self._config_loader = config_loader or ConfigLoader()
 
     def build_from_file(self, path: str | Path = "configs/platform.yaml") -> PlatformApplication:
+        """Build an application from a YAML configuration file.
+
+        Args:
+            path: Path to the platform configuration file.
+
+        Returns:
+            Fully assembled application container.
+        """
         config = self._config_loader.load(path, PlatformConfig)
         return self.build_from_config(config)
 
     def build_from_config(self, config: PlatformConfig) -> PlatformApplication:
+        """Build an application from an already validated config object."""
         plugin_manager = self._build_plugins(config)
         model_repository, deployment_repository, lifecycle_repository, telemetry_repository = self._build_repositories(
             config
@@ -83,8 +118,11 @@ class PlatformApplicationBuilder:
         )
         lifecycle_manager = SimpleLifecycleManager()
         router = CapabilityRouter()
-        model_server = FakeModelServer()
-        compatibility_checker = DefaultCompatibilityChecker(set(config.serving.supported_engines))
+        model_server = build_model_server(config.serving)
+        compatibility_checker = DefaultCompatibilityChecker(
+            set(config.serving.supported_engines),
+            compatibility_config_path="configs/validation/backend_compatibility.yaml",
+        )
         telemetry_provider = self._build_telemetry_provider(config, telemetry_repository)
         model_management_service = ModelManagementService(
             registry=registry,
@@ -115,11 +153,13 @@ class PlatformApplicationBuilder:
         )
 
     def create_fastapi_app(self, path: str | Path = "configs/platform.yaml") -> "FastAPI":
+        """Build and return a FastAPI application for the given config file."""
         from llm_platform.gateway.app import create_app
 
         return create_app(self.build_from_file(path))
 
     def _build_plugins(self, config: PlatformConfig) -> PluginManager:
+        """Load plugin implementations enabled in configuration."""
         available_plugins = {
             "qwen": QwenPlugin,
             "llama": LlamaPlugin,
@@ -134,6 +174,7 @@ class PlatformApplicationBuilder:
         return plugin_manager
 
     def _build_repositories(self, config: PlatformConfig):
+        """Build repository implementations for the configured database."""
         engine = config.database.engine.lower()
         if engine == "memory":
             return (
@@ -153,6 +194,7 @@ class PlatformApplicationBuilder:
         )
 
     def _build_telemetry_provider(self, config: PlatformConfig, telemetry_repository) -> ITelemetryProvider:
+        """Build the configured telemetry provider."""
         if config.telemetry.provider == "memory":
             return MemoryTelemetryProvider(telemetry_repository)
         if config.telemetry.provider == "database":

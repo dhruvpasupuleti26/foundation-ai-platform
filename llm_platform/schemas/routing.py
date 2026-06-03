@@ -10,6 +10,8 @@ from llm_platform.schemas.enums import Capability
 
 
 class RouteRequest(BaseModel):
+    """Routing request used by capability-based selection."""
+
     capability: Capability | str
     labels: dict[str, str] = Field(default_factory=dict)
     preferred_model_id: str | None = None

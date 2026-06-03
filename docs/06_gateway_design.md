@@ -7,10 +7,13 @@ Expose a stable OpenAI-style internal API over platform services.
 ## Endpoints
 
 - `POST /chat/completions`
+- `POST /v1/chat/completions`
 - `POST /models/register`
+- `POST /models/validate`
 - `POST /models/deploy`
 - `POST /models/unload`
 - `GET /models`
+- `GET /v1/models`
 - `GET /models/{id}`
 - `GET /health`
 - `GET /metrics`

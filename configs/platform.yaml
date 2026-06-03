@@ -19,10 +19,31 @@ plugins:
     - deepseek
 
 serving:
+  implementation: fake
   default_engine: vllm
   supported_engines:
     - vllm
+    - tgi
     - huggingface-transformers
+  default_placement: cpu
+  fallback_placements: []
+  model_cache_dir: ./data/model-cache
+  vllm:
+    base_url: http://localhost:8001
+    api_key: token-abc123
+    default_remote_model: Qwen/Qwen2.5-7B-Instruct
+  tgi:
+    base_url: http://localhost:8002
+    api_key: "-"
+    default_remote_model: tgi
+  huggingface:
+    trust_remote_code: false
+    default_dtype: auto
+    generation:
+      max_new_tokens: 96
+      temperature: 0.0
+      top_p: 1.0
+      do_sample: false
 
 telemetry:
   provider: database

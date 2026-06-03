@@ -33,3 +33,9 @@ Production-grade, configuration-driven LLM platform skeleton for hosting and rou
 ## Current Status
 
 This repository currently provides a production-oriented scaffold and placeholder implementations intended to evolve into a full internal AI platform without locking the design to any specific model family or serving engine.
+
+It now also includes:
+
+- a placement-aware local HuggingFace Transformers backend for `cpu`, `mps`, and `cuda`
+- Alembic-managed SQLite persistence by default
+- a smoke-test script for a real local model-hosting path

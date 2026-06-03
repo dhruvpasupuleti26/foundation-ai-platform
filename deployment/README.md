@@ -18,6 +18,12 @@ Deployment assets stay outside application code to separate runtime packaging fr
 
 - None yet
 
+## Current Assets
+
+- `deployment/Dockerfile.gateway`: gateway container image
+- `docker-compose.yml`: local multi-service stack with gateway, vLLM, and TGI profiles
+- `.env.example`: environment variables for the local deployment stack
+
 ## Extension Points
 
 - Kubernetes manifests

@@ -15,6 +15,16 @@
 - external database for registry persistence
 - Prometheus and OpenTelemetry collectors
 
+## Local Multi-Service Stack
+
+The repository now includes:
+
+- `docker-compose.yml` with `gateway`, `vllm`, and `tgi` services
+- `deployment/Dockerfile.gateway` for the gateway image
+- `.env.example` for local environment values
+
+Use CUDA-capable Linux hosts for the `vllm` and `tgi` compose profiles. Apple Silicon developers should continue using the local Transformers smoke-test path instead of the GPU compose stack.
+
 ## Operational Concerns
 
 - configuration promotion across environments

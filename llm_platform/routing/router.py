@@ -21,8 +21,12 @@ class CapabilityRouter(IRouter):
     ) -> RouteDecision:
         lifecycle_by_deployment = {record.deployment_id: record for record in lifecycle_records}
         deployments_by_model = {deployment.model_id: deployment for deployment in deployments}
+        if request.preferred_model_id:
+            ordered_models = sorted(models, key=lambda model: model.id != request.preferred_model_id)
+        else:
+            ordered_models = models
 
-        for model in models:
+        for model in ordered_models:
             if model.status not in {ModelStatus.REGISTERED, ModelStatus.DEPLOYED}:
                 continue
             if request.capability not in model.capabilities:

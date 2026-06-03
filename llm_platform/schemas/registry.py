@@ -1,4 +1,9 @@
-"""Registry and deployment schemas."""
+"""Registry and deployment schemas.
+
+These models represent the control-plane records exchanged between the gateway,
+services, registry, and serving backends. They are intentionally transport-
+agnostic so they can be reused by HTTP handlers, scripts, and background jobs.
+"""
 
 from __future__ import annotations
 
@@ -12,10 +17,13 @@ from llm_platform.schemas.enums import Capability, DeploymentStatus, LifecycleSt
 
 
 def utcnow() -> datetime:
+    """Return a timezone-aware UTC timestamp."""
     return datetime.now(timezone.utc)
 
 
 class ModelRecord(BaseModel):
+    """Persisted model metadata used by routing and deployment."""
+
     id: str = Field(default_factory=lambda: str(uuid4()))
     name: str
     version: str
@@ -30,6 +38,8 @@ class ModelRecord(BaseModel):
 
 
 class DeploymentRecord(BaseModel):
+    """Persisted deployment metadata used by routing and serving."""
+
     deployment_id: str = Field(default_factory=lambda: str(uuid4()))
     model_id: str
     endpoint: str
@@ -41,6 +51,8 @@ class DeploymentRecord(BaseModel):
 
 
 class LifecycleRecord(BaseModel):
+    """Persisted lifecycle state for a deployment."""
+
     deployment_id: str
     state: LifecycleState = LifecycleState.COLD
     last_transition: datetime = Field(default_factory=utcnow)
@@ -48,6 +60,8 @@ class LifecycleRecord(BaseModel):
 
 
 class ModelRegistrationRequest(BaseModel):
+    """Request payload for model registration."""
+
     name: str
     version: str
     family: str
@@ -59,7 +73,23 @@ class ModelRegistrationRequest(BaseModel):
 
 
 class DeploymentCreateRequest(BaseModel):
+    """Request payload for deployment creation.
+
+    Attributes:
+        model_id: Platform model identifier to deploy.
+        endpoint: Logical endpoint or location exposed by the deployment.
+        engine: Optional serving engine override. When omitted, the model's
+            registered engine is used.
+        placement: Preferred placement such as `cpu`, `mps`, or `cuda`.
+        fallback_placements: Ordered fallback placements to consider if the
+            preferred placement is unavailable.
+        metadata: Free-form runtime metadata such as source model identifiers
+            and backend-specific options.
+    """
+
     model_id: str
     endpoint: str
     engine: str | None = None
+    placement: str | None = None
+    fallback_placements: list[str] = Field(default_factory=list)
     metadata: dict[str, Any] = Field(default_factory=dict)
