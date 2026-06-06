@@ -20,7 +20,7 @@ class DockerManager: # Object managing Docker containers
 		try:
 			container = self.client.containers.run(
 				image=self.config['engine_image'],
-				command=f"--model {self.config['model_name']}",
+				command=f"--model {self.config['model_name']} --port {self.config['port']}",
 				name=self.config['container_name'],
 				detach=True,
 				network_mode="host",
