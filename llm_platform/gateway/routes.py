@@ -7,7 +7,8 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException, status
 
 from llm_platform.bootstrap import PlatformApplication
-from llm_platform.gateway.dependencies import get_application
+from llm_platform.gateway.dependencies import get_application, get_chat_service
+from llm_platform.services.chat import ChatService
 from llm_platform.schemas.gateway import (
     ChatCompletionRequest,
     ChatCompletionResponse,
@@ -205,3 +206,17 @@ def get_metrics(application: PlatformApplication = Depends(get_application)) -> 
 @v1_router.get("/health")
 def get_health_v1(application: PlatformApplication = Depends(get_application)) -> dict[str, object]:
     return application.health_service.health()
+
+# Code for POST request
+@v1_router.post("/chat/completions", response_model=ChatCompletionResponse)
+async def create_chat_completion(
+	request: ChatCompletionRequest,
+	chat_service: ChatService = Depends(get_chat_service),
+) -> ChatCompletionResponse:
+	"""response_model=ChatCompletionResponse guarantees returned object follows this layout."""
+
+	try:
+		response = await chat_service.chat(request)
+		return response
+	except PLatformError as error:
+		raise _translate_error(error) from error

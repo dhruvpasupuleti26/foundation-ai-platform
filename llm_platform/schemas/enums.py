@@ -2,8 +2,17 @@
 
 from __future__ import annotations
 
-from enum import StrEnum
+# from enum import StrEnum
+from enum import Enum
 
+# This is a 'polyfill'. It gives Python 3.10 (Brev) 
+# the same powers as 3.11.
+try:
+    from enum import StrEnum
+except ImportError:
+    class StrEnum(str, Enum):
+        def __str__(self) -> str:
+            return self.value
 
 class Capability(StrEnum):
     CHAT = "chat"

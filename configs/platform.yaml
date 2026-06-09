@@ -19,7 +19,7 @@ plugins:
     - deepseek
 
 serving:
-  implementation: fake
+  implementation: vllm
   default_engine: vllm
   supported_engines:
     - vllm
