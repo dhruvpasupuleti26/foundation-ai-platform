@@ -8,15 +8,16 @@ from llm_platform.schemas.gateway import ChatCompletionRequest # Pydantic struct
 class VllmModelServer(IModelServer):
 	"""Concrete inplementation of model server followig guidelines laid out by abstract base class IModelServer that communicates with vLLM"""
 
-	def __init__(self, base_url: str = "http://localhost:8001"):
+	def __init__(self):
 		
-		self.base_url = base_url # default points to port 8001
-
+		# self.base_url = base_url # default points to port 8001
+		pass
 
 	async def generate(self, deployment:object, request: ChatCompletionRequest) -> str:
 		"""Sends the request payload over the interna loopback network to live vllm container"""
 		
-		url = f"{self.base_url}/v1/chat/completions" # following openapi formatting
+		target_address = deployment.endpoint
+		url = f"{target_address}/v1/chat/completions" # following openapi formatting
 		
 		# Extract info from Pydantic request payload
 		payload = {

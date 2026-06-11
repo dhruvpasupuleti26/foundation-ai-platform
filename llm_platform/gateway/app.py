@@ -17,5 +17,5 @@ def create_app(platform_application: PlatformApplication) -> FastAPI:
 
 
 def create_default_app() -> FastAPI:
-    """Build the default FastAPI app from `configs/platform.yaml`."""
+    """Build the default FastAPI app from 'configs/platform.yaml'."""
     return PlatformApplicationBuilder().create_fastapi_app("configs/platform.yaml")
