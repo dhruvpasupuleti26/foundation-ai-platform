@@ -171,6 +171,7 @@ class PlatformApplicationBuilder:
                     if d.is_dir() and d.name.startswith("models--"):
                         repo_id = d.name.replace("models--", "").replace("--", "/")
                         if not any(m.name == repo_id for m in existing_models):
+                            print(f"[SSD Sync] Found un-registered model on SSD: {repo_id}. Auto-registering...")
                             model_id = str(uuid.uuid4())
                             new_model = ModelRecord(
                                 id=model_id,
@@ -197,8 +198,10 @@ class PlatformApplicationBuilder:
                                 metadata={}
                             )
                             deployment_repository.save(new_deployment)
-                            
+                            print(f"[SSD Sync] Successfully registered {repo_id} as PENDING.")
+            
             existing_models = model_repository.list()
+            print(f"[Bootstrap] Initialized with {len(existing_models)} models in registry.")
 
             target_model_name = "Qwen/Qwen2.5-7B-Instruct"
             
