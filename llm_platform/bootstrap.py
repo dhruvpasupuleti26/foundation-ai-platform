@@ -175,14 +175,11 @@ class PlatformApplicationBuilder:
                 new_deployment = DeploymentRecord(
                     deployment_id=str(uuid.uuid4()),
                     model_id=model_id,
-                    endpoint="http://localhost:8001",
+                    endpoint="http://localhost:pending",
                     engine="vllm",
-                    status=DeploymentStatus.READY,
+                    status=DeploymentStatus.PENDING,
                     created_at=datetime.now(timezone.utc),
-                    metadata={
-                        "base_url": "http://localhost:8001",
-                        "remote_model_name": target_model_name
-                    }
+                    metadata={}
                 )
                 deployment_repository.save(new_deployment)
                 
