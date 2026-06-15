@@ -277,6 +277,8 @@ class ChatService:
             existing_deployment.status = DeploymentStatus.READY
             existing_deployment.metadata["port"] = port
             existing_deployment.metadata["container_name"] = container_name
+            existing_deployment.metadata["base_url"] = endpoint
+            existing_deployment.metadata["remote_model_name"] = model_record.name
             deployment_record = self._registry.update_deployment(existing_deployment)
         else:
             deployment_record = DeploymentRecord(
@@ -286,7 +288,12 @@ class ChatService:
                 engine="vllm",
                 status=DeploymentStatus.READY,
                 created_at=datetime.now(timezone.utc),
-                metadata={"port": port, "container_name": container_name}
+                metadata={
+                    "port": port, 
+                    "container_name": container_name,
+                    "base_url": endpoint,
+                    "remote_model_name": model_record.name
+                }
             )
             self._registry.update_deployment(deployment_record)
             

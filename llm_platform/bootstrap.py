@@ -179,7 +179,10 @@ class PlatformApplicationBuilder:
                     engine="vllm",
                     status=DeploymentStatus.READY,
                     created_at=datetime.now(timezone.utc),
-                    metadata={}
+                    metadata={
+                        "base_url": "http://localhost:8001",
+                        "remote_model_name": target_model_name
+                    }
                 )
                 deployment_repository.save(new_deployment)
                 
