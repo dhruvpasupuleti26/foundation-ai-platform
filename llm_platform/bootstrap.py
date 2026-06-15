@@ -141,23 +141,23 @@ class PlatformApplicationBuilder:
             lifecycle_manager=lifecycle_manager,
             telemetry_provider=telemetry_provider,
             model_server=model_server,
+            compatibility_checker=compatibility_checker,
+            model_cache_dir=getattr(config.serving, 'model_cache_dir', './data/model-cache'),
         )
         health_service = HealthService(model_server=model_server, telemetry_provider=telemetry_provider)
 
-        # Seed Qwen model in the models database using the filing
-        # clerks (model_repository and deployment_repository).
-        # Adjust if Qwen is not default model.
         try:
             existing_models = model_repository.list()
             target_model_name = "Qwen/Qwen2.5-7B-Instruct"
             
             if not any(m.name == target_model_name for m in existing_models):
-                import uuid  # for unique id assignment
+                import uuid
                 from datetime import datetime, timezone
-                from llm_platform.database.models import ModelTable, DeploymentTable
+                from llm_platform.schemas.registry import ModelRecord, DeploymentRecord
+                from llm_platform.schemas.enums import ModelStatus, DeploymentStatus
 
                 model_id = str(uuid.uuid4())
-                new_model = ModelTable(
+                new_model = ModelRecord(
                     id=model_id,
                     name=target_model_name,
                     version="2.5",
@@ -166,22 +166,22 @@ class PlatformApplicationBuilder:
                     capabilities=["chat"],
                     memory_requirement_gb=16,
                     ownership="system",
-                    status="active",
+                    status=ModelStatus.REGISTERED,
                     created_at=datetime.now(timezone.utc),
-                    metadata_json={}
+                    metadata={}
                 )
-                model_repository.add(new_model)
+                model_repository.save(new_model)
 
-                new_deployment = DeploymentTable(
+                new_deployment = DeploymentRecord(
                     deployment_id=str(uuid.uuid4()),
                     model_id=model_id,
                     endpoint="http://localhost:8001",
                     engine="vllm",
-                    status="active",
+                    status=DeploymentStatus.READY,
                     created_at=datetime.now(timezone.utc),
-                    metadata_json={}
+                    metadata={}
                 )
-                deployment_repository.add(new_deployment)
+                deployment_repository.save(new_deployment)
                 
         except Exception as e:
             print(f"Seeding issue: {e}")

@@ -40,23 +40,23 @@ def _translate_error(error: PlatformError) -> HTTPException:
 
 
 @router.post("/chat/completions", response_model=ChatCompletionResponse)
-def create_chat_completion(
+async def create_chat_completion(
     payload: ChatCompletionRequest,
     application: PlatformApplication = Depends(get_application),
 ) -> ChatCompletionResponse:
     try:
-        return application.chat_service.create_completion(payload)
+        return await application.chat_service.chat(payload)
     except PlatformError as error:
         raise _translate_error(error) from error
 
 
 @v1_router.post("/chat/completions", response_model=OpenAIChatCompletionResponse)
-def create_openai_chat_completion(
+async def create_openai_chat_completion(
     payload: ChatCompletionRequest,
     application: PlatformApplication = Depends(get_application),
 ) -> OpenAIChatCompletionResponse:
     try:
-        response = application.chat_service.create_completion(payload)
+        response = await application.chat_service.chat(payload)
     except PlatformError as error:
         raise _translate_error(error) from error
     return OpenAIChatCompletionResponse(
@@ -208,8 +208,8 @@ def get_health_v1(application: PlatformApplication = Depends(get_application)) -
     return application.health_service.health()
 
 # Code for POST request
-@v1_router.post("/chat/completions", response_model=ChatCompletionResponse)
-async def create_chat_completion(
+@v1_router.post("/chat/completions/direct", response_model=ChatCompletionResponse)
+async def create_direct_chat_completion(
 	request: ChatCompletionRequest,
 	chat_service: ChatService = Depends(get_chat_service),
 ) -> ChatCompletionResponse:
@@ -218,5 +218,5 @@ async def create_chat_completion(
 	try:
 		response = await chat_service.chat(request)
 		return response
-	except PLatformError as error:
+	except PlatformError as error:
 		raise _translate_error(error) from error

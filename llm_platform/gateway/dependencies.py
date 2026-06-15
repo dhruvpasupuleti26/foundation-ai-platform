@@ -47,14 +47,4 @@ async def get_chat_service(
 
 	"""Fetches a ready ChatService instance"""
 
-	# Instantiate VllmModelServer with base url from global config
-	# PlatformApplication reads vllm_config.yaml to get info about ports, etc and stores it under .config.
-	model_server_courier = VllmModelServer(base_url=app_state.config.serving)
-
-	# return ChatService instance with dependency injection
-	return ChatService(
-		deployment_repository=app_state.deployment_repository,
-		model_server=model_server_courier,
-		plugin_manager=app_state.plugin_manager
-	)
-	
+	return app_state.chat_service
