@@ -149,6 +149,8 @@ class PlatformApplicationBuilder:
         try:
             # Auto-create tables if they don't exist
             if config.database.engine.lower() == "sqlite":
+                from pathlib import Path
+                Path(config.database.path).expanduser().resolve().parent.mkdir(parents=True, exist_ok=True)
                 from sqlalchemy import create_engine
                 from llm_platform.database.models import Base
                 engine = create_engine(config.database.sqlalchemy_url)

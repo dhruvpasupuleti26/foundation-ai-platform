@@ -231,8 +231,14 @@ class ChatService:
                 pass
                 
             device_request = docker.types.DeviceRequest(count=-1, capabilities=[['gpu']])
-            host_path = str(Path(self._model_cache_dir).resolve())
-            container_path = "/root/.cache/huggingface"
+            
+            # Ensure the cache directory exists before mounting
+            host_cache_path = Path(self._model_cache_dir).resolve()
+            host_cache_path.mkdir(parents=True, exist_ok=True)
+            host_path = str(host_cache_path)
+            
+            # Mount it exactly where the huggingface hub inside the container expects it
+            container_path = "/root/.cache/huggingface/hub"
             
             return client.containers.run(
                 image="vllm/vllm-openai:latest",
