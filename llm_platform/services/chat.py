@@ -275,10 +275,12 @@ class ChatService:
         if existing_deployment:
             existing_deployment.endpoint = endpoint
             existing_deployment.status = DeploymentStatus.READY
-            existing_deployment.metadata["port"] = port
-            existing_deployment.metadata["container_name"] = container_name
-            existing_deployment.metadata["base_url"] = endpoint
-            existing_deployment.metadata["remote_model_name"] = model_record.name
+            new_metadata = dict(existing_deployment.metadata)
+            new_metadata["port"] = port
+            new_metadata["container_name"] = container_name
+            new_metadata["base_url"] = endpoint
+            new_metadata["remote_model_name"] = model_record.name
+            existing_deployment.metadata = new_metadata
             deployment_record = self._registry.update_deployment(existing_deployment)
         else:
             deployment_record = DeploymentRecord(
