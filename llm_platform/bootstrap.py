@@ -147,6 +147,13 @@ class PlatformApplicationBuilder:
         health_service = HealthService(model_server=model_server, telemetry_provider=telemetry_provider)
 
         try:
+            # Auto-create tables if they don't exist
+            if config.database.engine.lower() == "sqlite":
+                from sqlalchemy import create_engine
+                from llm_platform.database.models import Base
+                engine = create_engine(config.database.sqlalchemy_url)
+                Base.metadata.create_all(bind=engine)
+
             existing_models = model_repository.list()
             target_model_name = "Qwen/Qwen2.5-7B-Instruct"
             
