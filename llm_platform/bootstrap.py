@@ -157,6 +157,49 @@ class PlatformApplicationBuilder:
                 Base.metadata.create_all(bind=engine)
 
             existing_models = model_repository.list()
+            
+            # Auto-sync models found on SSD cache into the database
+            import uuid
+            from datetime import datetime, timezone
+            from llm_platform.schemas.registry import ModelRecord, DeploymentRecord
+            from llm_platform.schemas.enums import ModelStatus, DeploymentStatus
+            from pathlib import Path
+            
+            cache_path = Path(getattr(config.serving, 'model_cache_dir', './data/model-cache')).expanduser().resolve()
+            if cache_path.exists():
+                for d in cache_path.iterdir():
+                    if d.is_dir() and d.name.startswith("models--"):
+                        repo_id = d.name.replace("models--", "").replace("--", "/")
+                        if not any(m.name == repo_id for m in existing_models):
+                            model_id = str(uuid.uuid4())
+                            new_model = ModelRecord(
+                                id=model_id,
+                                name=repo_id,
+                                version="latest",
+                                family="unknown",
+                                engine="vllm",
+                                capabilities=["chat"],
+                                memory_requirement_gb=4,
+                                ownership="system",
+                                status=ModelStatus.REGISTERED,
+                                created_at=datetime.now(timezone.utc),
+                                metadata={"from_ssd_sync": True}
+                            )
+                            model_repository.save(new_model)
+                            
+                            new_deployment = DeploymentRecord(
+                                deployment_id=str(uuid.uuid4()),
+                                model_id=model_id,
+                                endpoint="http://localhost:pending",
+                                engine="vllm",
+                                status=DeploymentStatus.PENDING,
+                                created_at=datetime.now(timezone.utc),
+                                metadata={}
+                            )
+                            deployment_repository.save(new_deployment)
+                            
+            existing_models = model_repository.list()
+
             target_model_name = "Qwen/Qwen2.5-7B-Instruct"
             
             if not any(m.name == target_model_name for m in existing_models):
