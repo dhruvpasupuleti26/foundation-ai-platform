@@ -4,36 +4,49 @@ import sys
 
 BASE_URL = "http://localhost:8000"
 
-def test_chat():
-    print("Sending chat request to live server...")
+def test_chat(run_name: str, expected_description: str):
+    print(f"\n--- {run_name} ---")
+    print(f"Expectation: {expected_description}")
     
     payload = {
-        # Using a small model to test onboarding/loading
         "model": "Qwen/Qwen2.5-1.5B-Instruct",
         "messages": [
             {"role": "user", "content": "Write a 2 sentence poem about a server."}
         ],
-        "password": "dhruv" # Triggers the dynamic onboarding logic if not present
+        "password": "dhruv"
     }
     
+    start_time = time.time()
     try:
-        start_time = time.time()
         response = requests.post(f"{BASE_URL}/chat/completions", json=payload, timeout=300)
         end_time = time.time()
         
         if response.status_code == 200:
             data = response.json()
-            print(f"\nSuccess! (Took {end_time - start_time:.2f} seconds)")
+            print(f"Success! (Took {end_time - start_time:.2f} seconds)")
             print(f"Routed to Model: {data.get('route', {}).get('model_id')}")
-            print(f"Routed to Deployment: {data.get('route', {}).get('deployment_id')}")
             print(f"Message: {data.get('message')}")
         else:
-            print(f"\nError ({response.status_code}): {response.text}")
-    except requests.exceptions.ConnectionError:
-        print("\nFailed to connect. Is Uvicorn running on localhost:8000?")
-        sys.exit(1)
+            print(f"Error ({response.status_code}): {response.text}")
     except Exception as e:
-        print(f"\nUnexpected error: {e}")
+        print(f"Unexpected error: {e}")
 
 if __name__ == "__main__":
-    test_chat()
+    # Test 1: Initial download and deploy
+    test_chat(
+        run_name="Run 1: Initial Request", 
+        expected_description="Should download weights from HuggingFace, spin up Docker, and generate. (Slowest)"
+    )
+    
+    print("\nWaiting 35 seconds for the model to go COLD and be unloaded...")
+    for i in range(35, 0, -1):
+        sys.stdout.write(f"\rTime remaining: {i}s   ")
+        sys.stdout.flush()
+        time.sleep(1)
+    print("\nModel should now be unloaded!")
+    
+    # Test 2: Cold start from SSD
+    test_chat(
+        run_name="Run 2: Cold Start from SSD", 
+        expected_description="No downloading needed. Should just spin up Docker with mounted SSD cache. (Faster)"
+    )
