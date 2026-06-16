@@ -97,6 +97,14 @@ class ChatService:
         
         deployment = self._registry.get_deployment(route.deployment_id)
         model = self._registry.get_model(route.model_id)
+        
+        if route.requires_cold_start:
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.info(f"Cold start required for model {model.name}. Deploying container...")
+            deployment = await self.deploy_vllm_container(model, deployment)
+            route.endpoint = deployment.endpoint
+
         lifecycle = self._registry.get_lifecycle(route.deployment_id)
         
         if lifecycle:
@@ -128,6 +136,27 @@ class ChatService:
             route=route,
             message=message,
         )
+
+    async def unload_deployment(self, deployment_id: str) -> None:
+        """Unload a deployment by stopping and removing its container."""
+        import docker
+        from llm_platform.schemas.enums import DeploymentStatus
+        
+        deployment = self._registry.get_deployment(deployment_id)
+        if not deployment:
+            return
+            
+        container_name = deployment.metadata.get("container_name")
+        if container_name:
+            client = docker.from_env()
+            try:
+                container = client.containers.get(container_name)
+                container.remove(force=True)
+            except docker.errors.NotFound:
+                pass
+                
+        deployment.status = DeploymentStatus.UNLOADED
+        self._registry.update_deployment(deployment)
 
     async def onboard_model(self, hf_repo: str) -> 'ModelRecord':
         from llm_platform.utils.errors import ValidationError

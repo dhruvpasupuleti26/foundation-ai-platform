@@ -2,18 +2,33 @@
 
 from __future__ import annotations
 
+import asyncio
+from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
 from llm_platform.bootstrap import PlatformApplication, PlatformApplicationBuilder
 from llm_platform.gateway.routes import router, v1_router
+from llm_platform.services.lifecycle_worker import run_lifecycle_loop
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    worker_task = asyncio.create_task(run_lifecycle_loop(app))
+    yield
+    worker_task.cancel()
+    try:
+        await worker_task
+    except asyncio.CancelledError:
+        pass
 
 
 def create_app(platform_application: PlatformApplication) -> FastAPI:
-    app = FastAPI(title="Foundation AI Platform")
+    app = FastAPI(title="Foundation AI Platform", lifespan=lifespan)
     app.state.platform_application = platform_application
     app.include_router(router)
     app.include_router(v1_router)
     return app
+
 
 
 def create_default_app() -> FastAPI:

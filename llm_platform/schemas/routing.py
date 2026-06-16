@@ -24,3 +24,4 @@ class RouteDecision(BaseModel):
     endpoint: str
     capability: Capability | str
     reason: str
+    requires_cold_start: bool = False
