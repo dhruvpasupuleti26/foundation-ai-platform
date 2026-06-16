@@ -109,6 +109,9 @@ class ChatService:
         
         if lifecycle:
             self._registry.upsert_lifecycle(self._lifecycle_manager.touch(lifecycle))
+        else:
+            new_record = self._lifecycle_manager.initialize(deployment)
+            self._registry.upsert_lifecycle(new_record)
             
         # Call generate (supports both sync and async engine clients)
         import inspect
