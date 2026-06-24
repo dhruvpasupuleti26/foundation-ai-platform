@@ -60,6 +60,10 @@ class ChatService:
         self._cold_start_locks: dict[str, asyncio.Lock] = {}
         # Global routing lock: ensures atomic decisions for concurrent requests
         self._routing_lock = asyncio.Lock()
+        
+        # Port reservation lock to prevent concurrent cold-start port collisions
+        self._port_lock = asyncio.Lock()
+        self._reserved_ports: set[int] = set()
 
     async def chat(self, request: ChatCompletionRequest) -> ChatCompletionResponse:
         """Asynchronously handles the entire chat request workflow."""
@@ -396,15 +400,19 @@ class ChatService:
         from llm_platform.schemas.registry import DeploymentRecord
         import uuid
         
-        # Find free port starting at 8002
+        # Find free port starting at 8002 atomically
         port = 8002
-        while True:
-            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-                try:
-                    s.bind(("127.0.0.1", port))
-                    break
-                except OSError:
-                    port += 1
+        async with self._port_lock:
+            while True:
+                if port not in self._reserved_ports:
+                    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                        try:
+                            s.bind(("127.0.0.1", port))
+                            self._reserved_ports.add(port)
+                            break
+                        except OSError:
+                            pass
+                port += 1
                     
         sanitized_name = model_record.name.replace("/", "-").replace(".", "-").replace(":", "-").lower()
         container_name = f"vllm-{sanitized_name}"
@@ -458,26 +466,39 @@ class ChatService:
                 device_requests=[device_request]
             )
             
-        await run_in_threadpool(run_docker)
-        
-        # Poll readiness health check
-        import httpx
-        import asyncio
-        url = f"http://localhost:{port}/v1/models"
-        ready = False
-        async with httpx.AsyncClient() as client:
-            for _ in range(60):
-                try:
-                    response = await client.get(url, timeout=2.0)
-                    if response.status_code == 200:
-                        ready = True
-                        break
-                except (httpx.ConnectError, httpx.TimeoutException, httpx.HTTPError):
-                    pass
-                await asyncio.sleep(5)
+        def cleanup_docker():
+            client = docker.from_env()
+            try:
+                c = client.containers.get(container_name)
+                c.remove(force=True)
+            except docker.errors.NotFound:
+                pass
                 
-        if not ready:
-            raise RuntimeError(f"vLLM container for {model_record.name} failed to become healthy on port {port}")
+        try:
+            await run_in_threadpool(run_docker)
+            
+            # Poll readiness health check
+            import httpx
+            import asyncio
+            url = f"http://localhost:{port}/v1/models"
+            ready = False
+            async with httpx.AsyncClient() as client:
+                for _ in range(60):
+                    try:
+                        response = await client.get(url, timeout=2.0)
+                        if response.status_code == 200:
+                            ready = True
+                            break
+                    except (httpx.ConnectError, httpx.TimeoutException, httpx.HTTPError):
+                        pass
+                    await asyncio.sleep(5)
+                    
+            if not ready:
+                await run_in_threadpool(cleanup_docker)
+                raise RuntimeError(f"vLLM container for {model_record.name} failed to become healthy on port {port}")
+        except Exception:
+            self._reserved_ports.discard(port)
+            raise
             
         endpoint = f"http://localhost:{port}"
         
