@@ -84,23 +84,7 @@ class ChatService:
                 else:
                     raise NotFoundError(f"Requested model was not found in registry: {request.model}")
 
-            # 2. Check and Deploy Container if not ready
-            deployments = self._registry.list_deployments()
-            deployment_record = None
-            for d in deployments:
-                if d.model_id == model_record.id:
-                    deployment_record = d
-                    break
-                    
-            from llm_platform.schemas.enums import DeploymentStatus
-            if not deployment_record or deployment_record.status != DeploymentStatus.READY:
-                deployment_record = await self.deploy_vllm_container(model_record, deployment_record)
-                # Track GPU allocation for newly deployed container
-                if self._gpu_tracker:
-                    self._gpu_tracker.allocate(deployment_record.deployment_id, model_record.memory_requirement_gb)
-                deployments = self._registry.list_deployments()
-        else:
-            deployments = self._registry.list_deployments()
+        deployments = self._registry.list_deployments()
 
         # 3. Dynamic Router and Text Generation
         lifecycle_records = [

@@ -152,6 +152,9 @@ class CapabilityRouter(IRouter):
                     scale_out_candidates.append((model, dep, None))
 
             if scale_out_candidates:
+                # Prioritize preferred_model_id if specified
+                if request.preferred_model_id:
+                    scale_out_candidates.sort(key=lambda c: c[0].id != request.preferred_model_id)
                 selected_model, selected_dep, evict_id = scale_out_candidates[0]
                 dep_id = selected_dep.deployment_id if selected_dep else None
                 endpoint = selected_dep.endpoint if selected_dep else None
