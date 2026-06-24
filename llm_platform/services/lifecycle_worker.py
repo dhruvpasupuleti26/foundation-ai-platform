@@ -30,8 +30,18 @@ async def run_lifecycle_loop(app: FastAPI):
                 if not record:
                     continue
                     
-                # Increment idle time by the sleep interval
-                record.idle_duration_seconds += 10
+                # If there are active requests, this deployment is NOT idle — reset the clock.
+                # Without this, a long cold-start (e.g. 172s) accumulates fake idle time
+                # and the worker unloads the model while it is still serving requests.
+                active = 0
+                if hasattr(platform, 'chat_service') and platform.chat_service._concurrency_tracker:
+                    active = platform.chat_service._concurrency_tracker.get_active_requests(deployment.deployment_id)
+
+                if active > 0:
+                    record.idle_duration_seconds = 0
+                else:
+                    # Increment idle time by the sleep interval
+                    record.idle_duration_seconds += 10
                 
                 # Use manager.py to calculate if a state transition should occur
                 updated_record = platform.lifecycle_manager.reconcile(record)
