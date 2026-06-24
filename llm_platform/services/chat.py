@@ -425,7 +425,9 @@ class ChatService:
                 others_gb = 0
                 deployments = self._registry.list_deployments()
                 for dep in deployments:
-                    if getattr(dep, "deployment_id", getattr(dep, "id", None)) != getattr(deployment, "deployment_id", getattr(deployment, "id", None)) and dep.status == DeploymentStatus.READY:
+                    dep_id = getattr(dep, "deployment_id", getattr(dep, "id", None))
+                    curr_id = existing_deployment.deployment_id if existing_deployment else None
+                    if dep_id != curr_id and dep.status == DeploymentStatus.READY:
                         rec = self._registry.get_model(dep.model_id)
                         if rec:
                             others_gb += rec.memory_requirement_gb
