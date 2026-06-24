@@ -50,27 +50,106 @@ if TYPE_CHECKING:
     from fastapi import FastAPI
 
 
-def _estimate_vram_gb(repo_id: str) -> int:
-    """Estimate GPU VRAM (GB) from a HuggingFace repo ID based on parameter count.
+def _read_model_vram_from_cache(model_dir: Path) -> int:
+    """Compute required VRAM (GB) by reading actual weight files from the
+    HuggingFace cache directory for a single model.
 
-    Uses the parameter suffix in the model name as a heuristic so the GPU
-    tracker knows when to stop spinning up new containers and start queuing
-    requests at already-running ones instead.
+    Resolution order (all offline, no network calls):
+    1. ``model.safetensors.index.json`` → ``metadata.total_size`` (bytes)
+       This file is present for any sharded model (7B+).
+    2. Sum of all ``*.safetensors`` files in the snapshot
+       (single-file models like 0.5B, 1.5B).
+    3. Sum of all ``*.bin`` files (older PyTorch format).
+    4. Name-based heuristic as absolute last resort.
+
+    Adds 20 % overhead on top of raw weight size to account for KV cache,
+    activations, and CUDA context, then rounds up to the nearest GB.
     """
-    name = repo_id.lower()
-    # Match common size suffixes, largest first so '70b' beats '7b'
+    import json
+    import math
+
+    # ── 1. Locate the active snapshot directory ───────────────────────
+    snapshot_dir = None
+    refs_main = model_dir / "refs" / "main"
+    if refs_main.exists():
+        commit_hash = refs_main.read_text().strip()
+        candidate = model_dir / "snapshots" / commit_hash
+        if candidate.is_dir():
+            snapshot_dir = candidate
+
+    # Fallback: most recently modified snapshot (handles detached HEAD etc.)
+    if snapshot_dir is None:
+        snapshots_root = model_dir / "snapshots"
+        if snapshots_root.is_dir():
+            candidates = sorted(
+                snapshots_root.iterdir(),
+                key=lambda p: p.stat().st_mtime,
+                reverse=True,
+            )
+            if candidates:
+                snapshot_dir = candidates[0]
+
+    if snapshot_dir is None:
+        # Nothing usable on disk — fall back to name heuristic
+        return _estimate_vram_gb_from_name(model_dir.name)
+
+    total_bytes = 0
+
+    # ── 2a. Sharded safetensors index ────────────────────────────────
+    index_file = snapshot_dir / "model.safetensors.index.json"
+    if not index_file.exists():
+        # Some models use a different prefix (e.g. pytorch_model)
+        for candidate in snapshot_dir.glob("*.index.json"):
+            index_file = candidate
+            break
+
+    if index_file.exists():
+        try:
+            with open(index_file, encoding="utf-8") as f:
+                idx = json.load(f)
+            total_bytes = int(idx.get("metadata", {}).get("total_size", 0))
+        except Exception:
+            total_bytes = 0
+
+    # ── 2b. Single-file safetensors ───────────────────────────────────
+    if total_bytes == 0:
+        for sf in snapshot_dir.glob("*.safetensors"):
+            total_bytes += sf.stat().st_size
+
+    # ── 2c. PyTorch .bin files ────────────────────────────────────────
+    if total_bytes == 0:
+        for bf in snapshot_dir.glob("*.bin"):
+            total_bytes += bf.stat().st_size
+
+    if total_bytes == 0:
+        return _estimate_vram_gb_from_name(model_dir.name)
+
+    # ── 3. Convert bytes → GB with 20 % runtime overhead ─────────────
+    raw_gb = total_bytes / (1024 ** 3)
+    vram_gb = math.ceil(raw_gb * 1.2)
+    return max(vram_gb, 1)
+
+
+def _estimate_vram_gb_from_name(dir_or_repo_name: str) -> int:
+    """Last-resort heuristic: parse parameter count from the model name.
+
+    Only used when no weight files are found on disk (e.g. model is
+    registered before download completes).
+    """
+    name = dir_or_repo_name.lower()
     for suffix, gb in [
-        ("70b",  140), ("72b",  144),
-        ("34b",   70), ("32b",   65),
-        ("13b",   26), ("14b",   29),
-        ("7b",    15), ("8b",    16),
-        ("3b",     7), ("2.5b",   6),
-        ("1.8b",   4), ("1.5b",   4), ("1.1b",   3),
-        ("0.5b",   2), ("0.5",    2),
+        ("70b", 140), ("72b", 144),
+        ("34b",  70), ("32b",  65),
+        ("13b",  26), ("14b",  29),
+        ("7b",   15), ("8b",   16),
+        ("3b",    7), ("2.5b",  6),
+        ("1.8b",  4), ("1.5b",  4), ("1.1b",  3),
+        ("0.5b",  2), ("0.5",   2),
     ]:
         if suffix in name:
             return gb
-    return 8  # conservative default for unknown sizes
+    return 8  # conservative default
+
 
 @dataclass(slots=True)
 class PlatformApplication:
@@ -213,7 +292,7 @@ class PlatformApplicationBuilder:
                                 family="unknown",
                                 engine="vllm",
                                 capabilities=["chat"],
-                                memory_requirement_gb=_estimate_vram_gb(repo_id),
+                                memory_requirement_gb=_read_model_vram_from_cache(d),
                                 ownership="system",
                                 status=ModelStatus.REGISTERED,
                                 created_at=datetime.now(timezone.utc),
@@ -231,7 +310,8 @@ class PlatformApplicationBuilder:
                                 metadata={}
                             )
                             deployment_repository.save(new_deployment)
-                            print(f"[SSD Sync] Successfully registered {repo_id} as PENDING (est. {_estimate_vram_gb(repo_id)}GB VRAM).")
+                            vram = _read_model_vram_from_cache(d)
+                            print(f"[SSD Sync] Successfully registered {repo_id} as PENDING ({vram}GB VRAM from disk).")
             
             existing_models = model_repository.list()
             print(f"[Bootstrap] Initialized with {len(existing_models)} models in registry.")
