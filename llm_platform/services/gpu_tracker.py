@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 class GPUResourceTracker:
     """Track GPU VRAM allocation via bookkeeping."""
 
-    def __init__(self, total_vram_gb: int = 21) -> None:
+    def __init__(self, total_vram_gb: int = 18) -> None:
         self._total_vram_gb = total_vram_gb
         # deployment_id -> allocated GB
         self._allocated: dict[str, int] = {}
