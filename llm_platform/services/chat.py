@@ -435,8 +435,14 @@ class ChatService:
             # Mount it exactly where the huggingface hub inside the container expects it
             container_path = "/root/.cache/huggingface/hub"
             
+            # Calculate memory utilization ratio
+            utilization = 0.90
+            if self._gpu_tracker:
+                ratio = model_record.memory_requirement_gb / self._gpu_tracker.total_vram_gb
+                utilization = max(0.10, min(0.95, ratio))
+                
             # Build the vLLM command
-            command = f"--model {model_record.name} --port {port} --host 0.0.0.0"
+            command = f"--model {model_record.name} --port {port} --host 0.0.0.0 --gpu-memory-utilization {utilization:.2f}"
             
             # EAGLE Speculative Decoding
             if model_record.vllm_eagle_head:
