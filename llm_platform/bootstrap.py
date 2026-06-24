@@ -39,6 +39,7 @@ from llm_platform.registry.service import RegistryService
 from llm_platform.routing.router import CapabilityRouter
 from llm_platform.schemas.config import PlatformConfig
 from llm_platform.services.chat import ChatService
+from llm_platform.services.gpu_tracker import GPUResourceTracker
 from llm_platform.services.health import HealthService
 from llm_platform.services.model_management import ModelManagementService
 from llm_platform.serving.factory import build_model_server
@@ -79,6 +80,7 @@ class PlatformApplication:
     model_management_service: ModelManagementService
     chat_service: ChatService
     health_service: HealthService
+    gpu_tracker: GPUResourceTracker
 
 
 class PlatformApplicationBuilder:
@@ -122,7 +124,10 @@ class PlatformApplicationBuilder:
             lifecycle_repository=lifecycle_repository,
         )
         lifecycle_manager = SimpleLifecycleManager()
-        router = CapabilityRouter()
+        gpu_tracker = GPUResourceTracker(
+            total_vram_gb=getattr(config.serving, 'gpu_vram_gb', 24)
+        )
+        router = CapabilityRouter(gpu_tracker=gpu_tracker)
         model_server = build_model_server(config.serving)
         compatibility_checker = DefaultCompatibilityChecker(
             set(config.serving.supported_engines),
@@ -143,6 +148,8 @@ class PlatformApplicationBuilder:
             model_server=model_server,
             compatibility_checker=compatibility_checker,
             model_cache_dir=getattr(config.serving, 'model_cache_dir', './data/model-cache'),
+            gpu_tracker=gpu_tracker,
+            num_speculative_tokens=getattr(config.serving, 'num_speculative_tokens', 5),
         )
         health_service = HealthService(model_server=model_server, telemetry_provider=telemetry_provider)
 
@@ -254,6 +261,7 @@ class PlatformApplicationBuilder:
             model_management_service=model_management_service,
             chat_service=chat_service,
             health_service=health_service,
+            gpu_tracker=gpu_tracker,
         )
 
     def create_fastapi_app(self, path: str | Path = "configs/platform.yaml") -> "FastAPI":

@@ -8,8 +8,11 @@ tested in isolation.
 
 from __future__ import annotations
 
+import json
+import logging
 from datetime import datetime, timezone
 from time import perf_counter
+from typing import TYPE_CHECKING
 
 from llm_platform.interfaces.lifecycle import ILifecycleManager
 from llm_platform.interfaces.model_server import IModelServer
@@ -21,6 +24,11 @@ from llm_platform.schemas.routing import RouteRequest
 from llm_platform.schemas.telemetry import TelemetryEvent
 from llm_platform.utils.errors import NotFoundError
 
+if TYPE_CHECKING:
+    from llm_platform.services.gpu_tracker import GPUResourceTracker
+
+logger = logging.getLogger(__name__)
+
 
 class ChatService:
     def __init__(
@@ -30,8 +38,10 @@ class ChatService:
         lifecycle_manager: ILifecycleManager,
         telemetry_provider: ITelemetryProvider,
         model_server: IModelServer,
-        compatibility_checker: ICompatibilityChecker | None = None,
+        compatibility_checker: "ICompatibilityChecker | None" = None,
         model_cache_dir: str = "./data/model-cache",
+        gpu_tracker: "GPUResourceTracker | None" = None,
+        num_speculative_tokens: int = 5,
     ) -> None:
         self._registry = registry
         self._router = router
@@ -40,6 +50,8 @@ class ChatService:
         self._model_server = model_server
         self._compatibility_checker = compatibility_checker
         self._model_cache_dir = model_cache_dir
+        self._gpu_tracker = gpu_tracker
+        self._num_speculative_tokens = num_speculative_tokens
 
     async def chat(self, request: ChatCompletionRequest) -> ChatCompletionResponse:
         """Asynchronously handles the entire chat request workflow."""
@@ -75,6 +87,9 @@ class ChatService:
         from llm_platform.schemas.enums import DeploymentStatus
         if not deployment_record or deployment_record.status != DeploymentStatus.READY:
             deployment_record = await self.deploy_vllm_container(model_record, deployment_record)
+            # Track GPU allocation for newly deployed container
+            if self._gpu_tracker:
+                self._gpu_tracker.allocate(deployment_record.deployment_id, model_record.memory_requirement_gb)
             deployments = self._registry.list_deployments()
 
         # 3. Dynamic Router and Text Generation
@@ -88,48 +103,89 @@ class ChatService:
             RouteRequest(
                 capability=request.capability,
                 preferred_model_id=model_record.id,
-                metadata=request.metadata,
+                metadata={**request.metadata, "_registry": self._registry},
             ),
             models=models,
             deployments=deployments,
             lifecycle_records=lifecycle_records,
         )
         
+        # ── Handle Eviction ──────────────────────────────────────────
+        if route.evict_deployment_id:
+            logger.info(f"Evicting idle deployment {route.evict_deployment_id} to free GPU space")
+            await self.unload_deployment(route.evict_deployment_id)
+            if self._gpu_tracker:
+                self._gpu_tracker.release(route.evict_deployment_id)
+
+        # ── Handle Cold Start or New Instance ────────────────────────
         deployment = self._registry.get_deployment(route.deployment_id)
         model = self._registry.get_model(route.model_id)
         
-        if route.requires_cold_start:
-            import logging
-            logger = logging.getLogger(__name__)
-            logger.info(f"Cold start required for model {model.name}. Deploying container...")
+        if route.requires_cold_start or route.requires_new_instance:
+            logger.info(
+                f"{'Cold start' if route.requires_cold_start else 'New instance'} "
+                f"required for model {model.name}. Deploying container..."
+            )
             deployment = await self.deploy_vllm_container(model, deployment)
             route.endpoint = deployment.endpoint
+            if self._gpu_tracker:
+                self._gpu_tracker.allocate(deployment.deployment_id, model.memory_requirement_gb)
 
+        # ── Lifecycle Touch ──────────────────────────────────────────
         lifecycle = self._registry.get_lifecycle(route.deployment_id)
-        
         if lifecycle:
             self._registry.upsert_lifecycle(self._lifecycle_manager.touch(lifecycle))
         else:
             new_record = self._lifecycle_manager.initialize(deployment)
             self._registry.upsert_lifecycle(new_record)
             
-        # Call generate (supports both sync and async engine clients)
+        # ── Generate with Inference Timing ───────────────────────────
         import inspect
         from fastapi.concurrency import run_in_threadpool
+
+        inference_start = perf_counter()
         if inspect.iscoroutinefunction(self._model_server.generate):
             message = await self._model_server.generate(deployment, request)
         else:
             message = await run_in_threadpool(self._model_server.generate, deployment, request)
-            
-        latency_ms = (perf_counter() - started) * 1000.0
+        inference_end = perf_counter()
+
+        # ── Compute Metrics ──────────────────────────────────────────
+        e2e_latency_ms = (perf_counter() - started) * 1000.0
+        inference_time_ms = (inference_end - inference_start) * 1000.0
+        
+        # TTFT: For non-streaming, we approximate as time-to-inference-complete
+        # In a streaming setup, this would be time to first chunk
+        ttft_ms = (inference_start - started) * 1000.0  # Time spent before inference = routing + cold start overhead
+        
+        # Estimate token-level metrics from response
+        # These are approximations — vLLM returns usage info in its response
+        completion_tokens = max(len(message.split()) if message else 0, 1)
+        tpot_ms = inference_time_ms / completion_tokens if completion_tokens > 0 else 0.0
+        itl_ms = tpot_ms  # For non-streaming, ITL ≈ TPOT
+        
+        latency_ms = e2e_latency_ms  # backward compat
+        
         self._telemetry_provider.emit(
             TelemetryEvent(
                 request_id=request.request_id,
                 deployment_id=route.deployment_id,
                 model_name=model.name,
                 latency_ms=latency_ms,
+                e2e_latency_ms=e2e_latency_ms,
+                ttft_ms=ttft_ms,
+                tpot_ms=tpot_ms,
+                itl_ms=itl_ms,
+                completion_tokens=completion_tokens,
+                speculative_decoding=bool(model.vllm_eagle_head),
                 timestamp=datetime.now(timezone.utc),
-                metadata={"capability": str(request.capability)},
+                metadata={
+                    "capability": str(request.capability),
+                    "inference_time_ms": inference_time_ms,
+                    "cold_start": route.requires_cold_start,
+                    "new_instance": route.requires_new_instance,
+                    "evicted": route.evict_deployment_id,
+                },
             )
         )
         
@@ -161,7 +217,7 @@ class ChatService:
         deployment.status = DeploymentStatus.UNLOADED
         self._registry.update_deployment(deployment)
 
-    async def onboard_model(self, hf_repo: str) -> 'ModelRecord':
+    async def onboard_model(self, hf_repo: str, eagle_head_repo: str | None = None) -> 'ModelRecord':
         from llm_platform.utils.errors import ValidationError
         if not self._compatibility_checker:
             raise ValidationError("Compatibility checker is not configured on ChatService.")
@@ -172,7 +228,7 @@ class ChatService:
                 f"Model {hf_repo} is not compatible with the platform. Recommended backend: {report.recommended_backend}"
             )
             
-        # Download weights asynchronously in thread pool
+        # Download main model weights asynchronously in thread pool
         from huggingface_hub import snapshot_download
         from fastapi.concurrency import run_in_threadpool
         await run_in_threadpool(
@@ -180,6 +236,15 @@ class ChatService:
             repo_id=hf_repo,
             cache_dir=self._model_cache_dir
         )
+
+        # Download EAGLE head if specified
+        if eagle_head_repo:
+            logger.info(f"[EAGLE] Downloading speculative decoding head: {eagle_head_repo}")
+            await run_in_threadpool(
+                snapshot_download,
+                repo_id=eagle_head_repo,
+                cache_dir=self._model_cache_dir
+            )
         
         family = "generic"
         if report.architecture:
@@ -201,6 +266,7 @@ class ChatService:
             family=family,
             engine="vllm",
             capabilities=["chat"],
+            vllm_eagle_head=eagle_head_repo,
             memory_requirement_gb=int(report.estimated_gpu_memory_gb or 16),
             ownership="user",
             metadata={
@@ -231,7 +297,7 @@ class ChatService:
     async def deploy_vllm_container(
         self, 
         model_record: 'ModelRecord', 
-        existing_deployment: 'DeploymentRecord' | None
+        existing_deployment: 'DeploymentRecord | None'
     ) -> 'DeploymentRecord':
         import socket
         import docker
@@ -272,9 +338,25 @@ class ChatService:
             # Mount it exactly where the huggingface hub inside the container expects it
             container_path = "/root/.cache/huggingface/hub"
             
+            # Build the vLLM command
+            command = f"--model {model_record.name} --port {port} --host 0.0.0.0"
+            
+            # EAGLE Speculative Decoding
+            if model_record.vllm_eagle_head:
+                spec_config = {
+                    "method": "eagle",
+                    "model": model_record.vllm_eagle_head,
+                    "num_speculative_tokens": self._num_speculative_tokens,
+                }
+                command += f" --speculative-config '{json.dumps(spec_config)}'"
+                logger.info(
+                    f"[EAGLE] Enabling speculative decoding with head: {model_record.vllm_eagle_head} "
+                    f"({self._num_speculative_tokens} tokens)"
+                )
+            
             return client.containers.run(
                 image="vllm/vllm-openai:latest",
-                command=f"--model {model_record.name} --port {port} --host 0.0.0.0",
+                command=command,
                 name=container_name,
                 detach=True,
                 network_mode="host",
@@ -318,6 +400,7 @@ class ChatService:
             new_metadata["container_name"] = container_name
             new_metadata["base_url"] = endpoint
             new_metadata["remote_model_name"] = model_record.name
+            new_metadata["eagle_head"] = model_record.vllm_eagle_head
             existing_deployment.metadata = new_metadata
             deployment_record = self._registry.update_deployment(existing_deployment)
         else:
@@ -332,7 +415,8 @@ class ChatService:
                     "port": port, 
                     "container_name": container_name,
                     "base_url": endpoint,
-                    "remote_model_name": model_record.name
+                    "remote_model_name": model_record.name,
+                    "eagle_head": model_record.vllm_eagle_head,
                 }
             )
             self._registry.update_deployment(deployment_record)

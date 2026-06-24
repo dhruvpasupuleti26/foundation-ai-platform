@@ -37,11 +37,13 @@ async def run_lifecycle_loop(app: FastAPI):
                 updated_record = platform.lifecycle_manager.reconcile(record)
                 platform.registry.upsert_lifecycle(updated_record)
                 
-                # Trigger scale-to-zero if model just went COLD
+                # Scale-to-zero trigger
                 if updated_record.state == LifecycleState.COLD:
                     print(f"[Lifecycle Worker] Deployment {deployment.deployment_id} transitioned to COLD. Unloading...")
                     await platform.chat_service.unload_deployment(deployment.deployment_id)
-                    
+                    # Release GPU VRAM allocation
+                    if hasattr(platform, 'gpu_tracker') and platform.gpu_tracker:
+                        platform.gpu_tracker.release(deployment.deployment_id)
         except asyncio.CancelledError:
             print("[Lifecycle Worker] Lifecycle worker cancelled.")
             break

@@ -141,6 +141,8 @@ class ServingConfig(BaseModel):
     default_placement: str = "cpu"
     fallback_placements: list[str] = Field(default_factory=list)
     model_cache_dir: str = "./data/model-cache"
+    gpu_vram_gb: int = 24  # Total GPU VRAM budget for model scheduling
+    num_speculative_tokens: int = 5  # Default EAGLE speculative decode tokens
     huggingface: HuggingFaceRuntimeConfig = Field(default_factory=HuggingFaceRuntimeConfig)
     vllm: OpenAICompatibleBackendConfig = Field(default_factory=OpenAICompatibleBackendConfig)
     tgi: OpenAICompatibleBackendConfig = Field(default_factory=OpenAICompatibleBackendConfig)

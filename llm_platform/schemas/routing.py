@@ -25,3 +25,5 @@ class RouteDecision(BaseModel):
     capability: Capability | str
     reason: str
     requires_cold_start: bool = False
+    requires_new_instance: bool = False  # Need to spin up a new container (GPU has space)
+    evict_deployment_id: str | None = None  # Deployment to evict before loading (GPU full)

@@ -18,6 +18,8 @@ class Capability(StrEnum):
     CHAT = "chat"
     REASONING = "reasoning"
     TOOL_CALLING = "tool_calling"
+    SUMMARIZATION = "summarization"
+    CODE_GENERATION = "code_generation"
     EMBEDDING = "embedding"
     EVALUATION = "evaluation"
     CLASSIFICATION = "classification"

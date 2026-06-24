@@ -6,7 +6,10 @@ models:
     capabilities:
       - chat
       - reasoning
-    memory_requirement_gb: 24
+      - summarization
+      - tool_calling
+    vllm_eagle_head: "yuhuili/EAGLE-Qwen2.5-7B-Instruct"
+    memory_requirement_gb: 16
     ownership: platform
     status: registered
   - name: embedding-service
