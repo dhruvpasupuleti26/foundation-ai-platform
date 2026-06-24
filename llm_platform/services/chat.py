@@ -477,6 +477,9 @@ class ChatService:
             client = docker.from_env()
             try:
                 c = client.containers.get(container_name)
+                logger.error(f"========== FATAL: CONTAINER {container_name} CRASHED ==========")
+                logger.error(c.logs().decode('utf-8'))
+                logger.error("=================================================================")
                 c.remove(force=True)
             except docker.errors.NotFound:
                 pass
