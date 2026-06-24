@@ -453,36 +453,36 @@ class ChatService:
                 # Mount it exactly where the huggingface hub inside the container expects it
                 container_path = "/root/.cache/huggingface/hub"
                 
-            # Build the vLLM command
-            command = f"--model {model_record.name} --port {port} --host 0.0.0.0 --gpu-memory-utilization {utilization:.2f}"
-            
-            # EAGLE Speculative Decoding
-            if model_record.vllm_eagle_head:
-                spec_config = {
-                    "method": "eagle",
-                    "model": model_record.vllm_eagle_head,
-                    "num_speculative_tokens": self._num_speculative_tokens,
-                }
-                command += f" --speculative-config '{json.dumps(spec_config)}'"
-                logger.info(
-                    f"[EAGLE] Enabling speculative decoding with head: {model_record.vllm_eagle_head} "
-                    f"({self._num_speculative_tokens} tokens)"
-                )
-            
-            return client.containers.run(
-                image="vllm/vllm-openai:latest",
-                command=command,
-                name=container_name,
-                detach=True,
-                network_mode="host",
-                volumes={
-                    host_path: {
-                        'bind': container_path,
-                        'mode': 'rw'
+                # Build the vLLM command
+                command = f"--model {model_record.name} --port {port} --host 0.0.0.0 --gpu-memory-utilization {utilization:.2f}"
+                
+                # EAGLE Speculative Decoding
+                if model_record.vllm_eagle_head:
+                    spec_config = {
+                        "method": "eagle",
+                        "model": model_record.vllm_eagle_head,
+                        "num_speculative_tokens": self._num_speculative_tokens,
                     }
-                },
-                device_requests=[device_request]
-            )
+                    command += f" --speculative-config '{json.dumps(spec_config)}'"
+                    logger.info(
+                        f"[EAGLE] Enabling speculative decoding with head: {model_record.vllm_eagle_head} "
+                        f"({self._num_speculative_tokens} tokens)"
+                    )
+                
+                return client.containers.run(
+                    image="vllm/vllm-openai:latest",
+                    command=command,
+                    name=container_name,
+                    detach=True,
+                    network_mode="host",
+                    volumes={
+                        host_path: {
+                            'bind': container_path,
+                            'mode': 'rw'
+                        }
+                    },
+                    device_requests=[device_request]
+                )
             
             def cleanup_docker():
                 client = docker.from_env()
