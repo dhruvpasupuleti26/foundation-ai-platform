@@ -26,6 +26,7 @@ from llm_platform.utils.errors import NotFoundError
 
 if TYPE_CHECKING:
     from llm_platform.services.gpu_tracker import GPUResourceTracker
+    from llm_platform.services.concurrency import ConcurrencyTracker
 
 logger = logging.getLogger(__name__)
 
@@ -41,6 +42,7 @@ class ChatService:
         compatibility_checker: "ICompatibilityChecker | None" = None,
         model_cache_dir: str = "./data/model-cache",
         gpu_tracker: "GPUResourceTracker | None" = None,
+        concurrency_tracker: "ConcurrencyTracker | None" = None,
         num_speculative_tokens: int = 5,
     ) -> None:
         self._registry = registry
@@ -51,6 +53,7 @@ class ChatService:
         self._compatibility_checker = compatibility_checker
         self._model_cache_dir = model_cache_dir
         self._gpu_tracker = gpu_tracker
+        self._concurrency_tracker = concurrency_tracker
         self._num_speculative_tokens = num_speculative_tokens
 
     async def chat(self, request: ChatCompletionRequest) -> ChatCompletionResponse:
@@ -149,10 +152,20 @@ class ChatService:
         from fastapi.concurrency import run_in_threadpool
 
         inference_start = perf_counter()
-        if inspect.iscoroutinefunction(self._model_server.generate):
-            message = await self._model_server.generate(deployment, request)
-        else:
-            message = await run_in_threadpool(self._model_server.generate, deployment, request)
+        
+        # Track active requests
+        if self._concurrency_tracker and route.deployment_id:
+            self._concurrency_tracker.increment(route.deployment_id)
+            
+        try:
+            if inspect.iscoroutinefunction(self._model_server.generate):
+                message = await self._model_server.generate(deployment, request)
+            else:
+                message = await run_in_threadpool(self._model_server.generate, deployment, request)
+        finally:
+            if self._concurrency_tracker and route.deployment_id:
+                self._concurrency_tracker.decrement(route.deployment_id)
+                
         inference_end = perf_counter()
 
         # ── Compute Metrics ──────────────────────────────────────────

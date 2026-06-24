@@ -127,7 +127,10 @@ class PlatformApplicationBuilder:
         gpu_tracker = GPUResourceTracker(
             total_vram_gb=getattr(config.serving, 'gpu_vram_gb', 24)
         )
-        router = CapabilityRouter(gpu_tracker=gpu_tracker)
+        from llm_platform.services.concurrency import ConcurrencyTracker
+        concurrency_tracker = ConcurrencyTracker()
+
+        router = CapabilityRouter(gpu_tracker=gpu_tracker, concurrency_tracker=concurrency_tracker)
         model_server = build_model_server(config.serving)
         compatibility_checker = DefaultCompatibilityChecker(
             set(config.serving.supported_engines),
@@ -149,6 +152,7 @@ class PlatformApplicationBuilder:
             compatibility_checker=compatibility_checker,
             model_cache_dir=getattr(config.serving, 'model_cache_dir', './data/model-cache'),
             gpu_tracker=gpu_tracker,
+            concurrency_tracker=concurrency_tracker,
             num_speculative_tokens=getattr(config.serving, 'num_speculative_tokens', 5),
         )
         health_service = HealthService(model_server=model_server, telemetry_provider=telemetry_provider)

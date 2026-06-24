@@ -26,6 +26,7 @@ from llm_platform.utils.errors import RoutingError
 
 if TYPE_CHECKING:
     from llm_platform.services.gpu_tracker import GPUResourceTracker
+    from llm_platform.services.concurrency import ConcurrencyTracker
 
 logger = logging.getLogger(__name__)
 
@@ -34,8 +35,13 @@ class CapabilityRouter(IRouter):
     """Select a healthy deployment that satisfies the requested capability with
     GPU-aware scheduling, load balancing, and eviction support."""
 
-    def __init__(self, gpu_tracker: "GPUResourceTracker | None" = None) -> None:
+    def __init__(
+        self, 
+        gpu_tracker: "GPUResourceTracker | None" = None,
+        concurrency_tracker: "ConcurrencyTracker | None" = None,
+    ) -> None:
         self._gpu_tracker = gpu_tracker
+        self._concurrency_tracker = concurrency_tracker
 
     def route(
         self,
@@ -97,9 +103,16 @@ class CapabilityRouter(IRouter):
                         )
 
                     if lifecycle and lifecycle.state in {LifecycleState.HOT, LifecycleState.WARM}:
-                        ready_idle.append((model, dep))
+                        is_busy = False
+                        if self._concurrency_tracker:
+                            is_busy = self._concurrency_tracker.get_active_requests(dep.deployment_id) > 0
+                        
+                        if is_busy:
+                            ready_busy.append((model, dep))
+                        else:
+                            ready_idle.append((model, dep))
                     else:
-                        # HOT lifecycle not yet initialized, treat as idle too
+                        # HOT lifecycle not yet initialized, treat as idle
                         ready_idle.append((model, dep))
                 elif dep.status == DeploymentStatus.UNLOADED:
                     unloaded.append((model, dep))
@@ -119,91 +132,62 @@ class CapabilityRouter(IRouter):
                 requires_cold_start=False,
             )
 
-        # 3b. All READY deployments are busy — try to spin up another container
-        if ready_busy and self._gpu_tracker:
-            # Pick the model with the most capabilities for maximum reuse
-            best_model = capable_models[0]
-            best_dep = (deployments_by_model.get(best_model.id, [None]) or [None])[0]
-            if best_dep:
-                if self._gpu_tracker.can_fit(best_model.memory_requirement_gb):
-                    return RouteDecision(
-                        model_id=best_model.id,
-                        deployment_id=best_dep.deployment_id,
-                        endpoint=best_dep.endpoint,
-                        capability=request.capability,
-                        reason=f"GPU has space ({self._gpu_tracker.available_vram_gb}GB free), "
-                               f"spinning up new instance",
-                        requires_cold_start=False,
-                        requires_new_instance=True,
-                    )
-                else:
-                    # GPU full — try to evict an idle model
-                    evict_id = self._gpu_tracker.find_evictable(
-                        # We'll need registry access — passed via metadata
-                        request.metadata.get("_registry"),
-                        best_model.memory_requirement_gb,
-                    )
-                    if evict_id:
-                        return RouteDecision(
-                            model_id=best_model.id,
-                            deployment_id=best_dep.deployment_id,
-                            endpoint=best_dep.endpoint,
-                            capability=request.capability,
-                            reason=f"GPU full, evicting idle deployment {evict_id} to make room",
-                            requires_cold_start=False,
-                            requires_new_instance=True,
-                            evict_deployment_id=evict_id,
-                        )
-
-        # 3c. Cold start from unloaded deployment
+        # 3b. All running deployments are busy (or none exist). Try to Scale-Out or Cold Start!
         if unloaded:
-            # Check GPU space for cold start
-            selected_model, selected_dep = unloaded[0]  # Pick first (highest capability breadth)
-
-            dep_id = selected_dep.deployment_id if selected_dep else None
-            endpoint = selected_dep.endpoint if selected_dep else None
-
-            if self._gpu_tracker:
-                if self._gpu_tracker.can_fit(selected_model.memory_requirement_gb):
-                    return RouteDecision(
-                        model_id=selected_model.id,
-                        deployment_id=dep_id,
-                        endpoint=endpoint,
-                        capability=request.capability,
-                        reason=f"Cold start — GPU has {self._gpu_tracker.available_vram_gb}GB free",
-                        requires_cold_start=True,
-                    )
+            # We want to spin up a new model from unloaded
+            scale_out_candidates = []
+            for model, dep in unloaded:
+                if self._gpu_tracker:
+                    if self._gpu_tracker.can_fit(model.memory_requirement_gb):
+                        scale_out_candidates.append((model, dep, None))
+                    else:
+                        evict_id = self._gpu_tracker.find_evictable(request.metadata.get("_registry"), model.memory_requirement_gb)
+                        if evict_id:
+                            scale_out_candidates.append((model, dep, evict_id))
                 else:
-                    # Try eviction for cold start too
-                    evict_id = self._gpu_tracker.find_evictable(
-                        request.metadata.get("_registry"),
-                        selected_model.memory_requirement_gb,
-                    )
-                    if evict_id:
-                        return RouteDecision(
-                            model_id=selected_model.id,
-                            deployment_id=dep_id,
-                            endpoint=endpoint,
-                            capability=request.capability,
-                            reason=f"Cold start — evicting {evict_id} to free GPU space",
-                            requires_cold_start=True,
-                            evict_deployment_id=evict_id,
-                        )
-                    raise RoutingError(
-                        f"GPU full ({self._gpu_tracker.allocated_vram_gb}/"
-                        f"{self._gpu_tracker.total_vram_gb}GB) and no idle deployment to evict "
-                        f"for capability: {request.capability}"
-                    )
-            else:
-                # No GPU tracker — simple cold start
+                    scale_out_candidates.append((model, dep, None))
+
+            if scale_out_candidates:
+                selected_model, selected_dep, evict_id = scale_out_candidates[0]
+                dep_id = selected_dep.deployment_id if selected_dep else None
+                endpoint = selected_dep.endpoint if selected_dep else None
+                
+                reason = "Cold start"
+                if ready_busy:
+                    reason = f"Scale-out: All {len(ready_busy)} running deployments are busy, spinning up new instance"
+                if evict_id:
+                    reason += f" (evicting {evict_id} for GPU space)"
+                elif self._gpu_tracker:
+                    reason += f" (GPU has {self._gpu_tracker.available_vram_gb}GB free)"
+
                 return RouteDecision(
                     model_id=selected_model.id,
                     deployment_id=dep_id,
                     endpoint=endpoint,
                     capability=request.capability,
-                    reason="Cold start required for unloaded deployment",
+                    reason=reason,
                     requires_cold_start=True,
+                    evict_deployment_id=evict_id,
                 )
+
+        # 3c. Fallback to busy deployments using Power of Two Choices load balancing
+        if ready_busy:
+            if len(ready_busy) == 1:
+                selected_model, selected_dep = ready_busy[0]
+            else:
+                c1, c2 = random.sample(ready_busy, 2)
+                load1 = self._concurrency_tracker.get_active_requests(c1[1].deployment_id) if self._concurrency_tracker else 0
+                load2 = self._concurrency_tracker.get_active_requests(c2[1].deployment_id) if self._concurrency_tracker else 0
+                selected_model, selected_dep = c1 if load1 <= load2 else c2
+
+            return RouteDecision(
+                model_id=selected_model.id,
+                deployment_id=selected_dep.deployment_id,
+                endpoint=selected_dep.endpoint,
+                capability=request.capability,
+                reason=f"Concurrency fallback: Queuing on busy deployment {selected_dep.deployment_id} (Power of Two Choices)",
+                requires_cold_start=False,
+            )
 
         raise RoutingError(
             f"No eligible deployment found for capability: {request.capability}"
