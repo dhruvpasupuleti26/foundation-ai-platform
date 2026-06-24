@@ -438,7 +438,8 @@ class ChatService:
             # Calculate memory utilization ratio
             utilization = 0.90
             if self._gpu_tracker:
-                ratio = model_record.memory_requirement_gb / self._gpu_tracker.total_vram_gb
+                physical_vram_gb = self._gpu_tracker.total_vram_gb + 2.0
+                ratio = model_record.memory_requirement_gb / physical_vram_gb
                 utilization = max(0.10, min(0.95, ratio))
                 
             # Build the vLLM command

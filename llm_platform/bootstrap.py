@@ -226,7 +226,7 @@ class PlatformApplicationBuilder:
         )
         lifecycle_manager = SimpleLifecycleManager()
         gpu_tracker = GPUResourceTracker(
-            total_vram_gb=getattr(config.serving, 'gpu_vram_gb', 24)
+            total_vram_gb=getattr(config.serving, 'gpu_vram_gb', 21)
         )
         from llm_platform.services.concurrency import ConcurrencyTracker
         concurrency_tracker = ConcurrencyTracker()
