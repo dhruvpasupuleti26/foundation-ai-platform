@@ -13,7 +13,7 @@ async def make_request(client, capability, index):
     
     start = time.perf_counter()
     try:
-        response = await client.post(url, json=payload, timeout=300.0)
+        response = await client.post(url, json=payload, timeout=None)
         response.raise_for_status()
         end = time.perf_counter()
         print(f"[Req {index:02d}] Finished in {end - start:.2f}s")
