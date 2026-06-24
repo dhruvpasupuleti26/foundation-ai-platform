@@ -114,7 +114,8 @@ class CapabilityRouter(IRouter):
                     else:
                         # HOT lifecycle not yet initialized, treat as idle
                         ready_idle.append((model, dep))
-                elif dep.status == DeploymentStatus.UNLOADED:
+                elif dep.status in {DeploymentStatus.UNLOADED, DeploymentStatus.PENDING}:
+                    # PENDING = registered but no container yet → treat as cold-startable
                     unloaded.append((model, dep))
 
         # ── Phase 3: Route Decision ──────────────────────────────────

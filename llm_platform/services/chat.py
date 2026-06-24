@@ -8,6 +8,7 @@ tested in isolation.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 from datetime import datetime, timezone
@@ -55,6 +56,8 @@ class ChatService:
         self._gpu_tracker = gpu_tracker
         self._concurrency_tracker = concurrency_tracker
         self._num_speculative_tokens = num_speculative_tokens
+        # Per-model lock: prevents concurrent cold-start races
+        self._cold_start_locks: dict[str, asyncio.Lock] = {}
 
     async def chat(self, request: ChatCompletionRequest) -> ChatCompletionResponse:
         """Asynchronously handles the entire chat request workflow."""
@@ -129,15 +132,29 @@ class ChatService:
         model = self._registry.get_model(route.model_id)
         
         if route.requires_cold_start or route.requires_new_instance:
-            logger.info(
-                f"{'Cold start' if route.requires_cold_start else 'New instance'} "
-                f"required for model {model.name}. Deploying container..."
-            )
-            deployment = await self.deploy_vllm_container(model, deployment)
-            route.endpoint = deployment.endpoint
-            route.deployment_id = deployment.deployment_id
-            if self._gpu_tracker:
-                self._gpu_tracker.allocate(deployment.deployment_id, model.memory_requirement_gb)
+            # Per-model lock: only one cold start runs at a time per model.
+            # Concurrent requests wait here; once the first finishes and the
+            # deployment is READY, subsequent requests skip deploy_vllm_container.
+            if route.model_id not in self._cold_start_locks:
+                self._cold_start_locks[route.model_id] = asyncio.Lock()
+            async with self._cold_start_locks[route.model_id]:
+                # Re-fetch deployment inside the lock — another request may
+                # have already completed the cold start while we were waiting.
+                deployment = self._registry.get_deployment(route.deployment_id) if route.deployment_id else None
+                from llm_platform.schemas.enums import DeploymentStatus
+                if deployment and deployment.status == DeploymentStatus.READY:
+                    logger.info(f"Cold start already completed by another request for {model.name}, reusing.")
+                    route.endpoint = deployment.endpoint
+                else:
+                    logger.info(
+                        f"{'Cold start' if route.requires_cold_start else 'New instance'} "
+                        f"required for model {model.name}. Deploying container..."
+                    )
+                    deployment = await self.deploy_vllm_container(model, deployment)
+                    route.endpoint = deployment.endpoint
+                    route.deployment_id = deployment.deployment_id
+                    if self._gpu_tracker:
+                        self._gpu_tracker.allocate(deployment.deployment_id, model.memory_requirement_gb)
 
         # ── Lifecycle Touch ──────────────────────────────────────────
         lifecycle = self._registry.get_lifecycle(route.deployment_id)
