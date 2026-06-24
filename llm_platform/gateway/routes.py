@@ -165,6 +165,43 @@ def list_models_v1(application: PlatformApplication = Depends(get_application)) 
     return ModelsResponse(models=application.model_management_service.list_models())
 
 
+# ── Model Capabilities Endpoint ──────────────────────────────────────
+
+@v1_router.get("/models/capabilities")
+def list_capabilities(
+    application: PlatformApplication = Depends(get_application),
+) -> dict[str, object]:
+    """Returns all registered capabilities and which models support each."""
+    models = application.model_management_service.list_models()
+    
+    capability_map: dict[str, list[dict[str, object]]] = {}
+    for model in models:
+        for cap in model.capabilities:
+            cap_str = str(cap)
+            if cap_str not in capability_map:
+                capability_map[cap_str] = []
+            capability_map[cap_str].append({
+                "model_id": model.id,
+                "model_name": model.name,
+                "family": model.family,
+                "memory_requirement_gb": model.memory_requirement_gb,
+                "vllm_eagle_head": model.vllm_eagle_head,
+                "status": str(model.status),
+            })
+    
+    return {
+        "capabilities": capability_map,
+        "total_models": len(models),
+    }
+
+
+@router.get("/models/capabilities")
+def list_capabilities_root(
+    application: PlatformApplication = Depends(get_application),
+) -> dict[str, object]:
+    return list_capabilities(application)
+
+
 @router.get("/models/{model_id}", response_model=ModelResponse)
 def get_model(
     model_id: str,
@@ -305,39 +342,3 @@ def get_inference_metrics_root(
 ) -> dict[str, object]:
     return get_inference_metrics(application, limit)
 
-
-# ── Model Capabilities Endpoint ──────────────────────────────────────
-
-@v1_router.get("/models/capabilities")
-def list_capabilities(
-    application: PlatformApplication = Depends(get_application),
-) -> dict[str, object]:
-    """Returns all registered capabilities and which models support each."""
-    models = application.model_management_service.list_models()
-    
-    capability_map: dict[str, list[dict[str, object]]] = {}
-    for model in models:
-        for cap in model.capabilities:
-            cap_str = str(cap)
-            if cap_str not in capability_map:
-                capability_map[cap_str] = []
-            capability_map[cap_str].append({
-                "model_id": model.id,
-                "model_name": model.name,
-                "family": model.family,
-                "memory_requirement_gb": model.memory_requirement_gb,
-                "vllm_eagle_head": model.vllm_eagle_head,
-                "status": str(model.status),
-            })
-    
-    return {
-        "capabilities": capability_map,
-        "total_models": len(models),
-    }
-
-
-@router.get("/models/capabilities")
-def list_capabilities_root(
-    application: PlatformApplication = Depends(get_application),
-) -> dict[str, object]:
-    return list_capabilities(application)
