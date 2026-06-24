@@ -57,39 +57,43 @@ class ChatService:
         """Asynchronously handles the entire chat request workflow."""
         started = perf_counter()
         
-        # 1. Resolve or Onboard Model
+        # 1. Resolve or Onboard Model (if specific model requested)
         models = self._registry.list_models()
         model_record = None
-        for m in models:
-            if m.id == request.model or m.name == request.model:
-                model_record = m
-                break
-                
-        if not model_record:
-            password = request.password or request.metadata.get("password")
-            if password == "dhruv":
-                hf_repo = request.huggingface_id or request.model
-                if not hf_repo:
-                    raise NotFoundError("Hugging Face repository ID must be provided for onboarding.")
-                model_record = await self.onboard_model(hf_repo)
-                models = self._registry.list_models()
-            else:
-                raise NotFoundError(f"Requested model was not found in registry: {request.model}")
+        
+        if request.model:
+            for m in models:
+                if m.id == request.model or m.name == request.model:
+                    model_record = m
+                    break
+                    
+            if not model_record:
+                password = request.password or request.metadata.get("password")
+                if password == "dhruv":
+                    hf_repo = request.huggingface_id or request.model
+                    if not hf_repo:
+                        raise NotFoundError("Hugging Face repository ID must be provided for onboarding.")
+                    model_record = await self.onboard_model(hf_repo)
+                    models = self._registry.list_models()
+                else:
+                    raise NotFoundError(f"Requested model was not found in registry: {request.model}")
 
-        # 2. Check and Deploy Container if not ready
-        deployments = self._registry.list_deployments()
-        deployment_record = None
-        for d in deployments:
-            if d.model_id == model_record.id:
-                deployment_record = d
-                break
-                
-        from llm_platform.schemas.enums import DeploymentStatus
-        if not deployment_record or deployment_record.status != DeploymentStatus.READY:
-            deployment_record = await self.deploy_vllm_container(model_record, deployment_record)
-            # Track GPU allocation for newly deployed container
-            if self._gpu_tracker:
-                self._gpu_tracker.allocate(deployment_record.deployment_id, model_record.memory_requirement_gb)
+            # 2. Check and Deploy Container if not ready
+            deployments = self._registry.list_deployments()
+            deployment_record = None
+            for d in deployments:
+                if d.model_id == model_record.id:
+                    deployment_record = d
+                    break
+                    
+            from llm_platform.schemas.enums import DeploymentStatus
+            if not deployment_record or deployment_record.status != DeploymentStatus.READY:
+                deployment_record = await self.deploy_vllm_container(model_record, deployment_record)
+                # Track GPU allocation for newly deployed container
+                if self._gpu_tracker:
+                    self._gpu_tracker.allocate(deployment_record.deployment_id, model_record.memory_requirement_gb)
+                deployments = self._registry.list_deployments()
+        else:
             deployments = self._registry.list_deployments()
 
         # 3. Dynamic Router and Text Generation
@@ -102,7 +106,7 @@ class ChatService:
         route = self._router.route(
             RouteRequest(
                 capability=request.capability,
-                preferred_model_id=model_record.id,
+                preferred_model_id=model_record.id if model_record else None,
                 metadata={**request.metadata, "_registry": self._registry},
             ),
             models=models,
