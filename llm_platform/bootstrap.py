@@ -124,10 +124,10 @@ def _read_model_vram_from_cache(model_dir: Path) -> int:
     if total_bytes == 0:
         return _estimate_vram_gb_from_name(model_dir.name)
 
-    # ── 3. Convert bytes → GB with 20 % runtime overhead ─────────────
+    # ── 3. Convert bytes → GB with a flat 2GB overhead ───────────────
     raw_gb = total_bytes / (1024 ** 3)
-    vram_gb = math.ceil(raw_gb * 1.2)
-    return max(vram_gb, 1)
+    vram_gb = math.ceil(raw_gb) + 2
+    return max(vram_gb, 3)
 
 
 def _estimate_vram_gb_from_name(dir_or_repo_name: str) -> int:
