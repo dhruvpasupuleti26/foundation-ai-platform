@@ -122,7 +122,7 @@ class ChatService:
                 self._gpu_tracker.release(route.evict_deployment_id)
 
         # ── Handle Cold Start or New Instance ────────────────────────
-        deployment = self._registry.get_deployment(route.deployment_id)
+        deployment = self._registry.get_deployment(route.deployment_id) if route.deployment_id else None
         model = self._registry.get_model(route.model_id)
         
         if route.requires_cold_start or route.requires_new_instance:
@@ -132,6 +132,7 @@ class ChatService:
             )
             deployment = await self.deploy_vllm_container(model, deployment)
             route.endpoint = deployment.endpoint
+            route.deployment_id = deployment.deployment_id
             if self._gpu_tracker:
                 self._gpu_tracker.allocate(deployment.deployment_id, model.memory_requirement_gb)
 

@@ -20,8 +20,8 @@ class RouteRequest(BaseModel):
 
 class RouteDecision(BaseModel):
     model_id: str
-    deployment_id: str
-    endpoint: str
+    deployment_id: str | None = None
+    endpoint: str | None = None
     capability: Capability | str
     reason: str
     requires_cold_start: bool = False

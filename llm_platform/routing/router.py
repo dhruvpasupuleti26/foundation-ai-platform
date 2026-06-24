@@ -76,6 +76,7 @@ class CapabilityRouter(IRouter):
         for model in capable_models:
             model_deployments = deployments_by_model.get(model.id, [])
             if not model_deployments:
+                unloaded.append((model, None))
                 continue
 
             for dep in model_deployments:
@@ -159,12 +160,15 @@ class CapabilityRouter(IRouter):
             # Check GPU space for cold start
             selected_model, selected_dep = unloaded[0]  # Pick first (highest capability breadth)
 
+            dep_id = selected_dep.deployment_id if selected_dep else None
+            endpoint = selected_dep.endpoint if selected_dep else None
+
             if self._gpu_tracker:
                 if self._gpu_tracker.can_fit(selected_model.memory_requirement_gb):
                     return RouteDecision(
                         model_id=selected_model.id,
-                        deployment_id=selected_dep.deployment_id,
-                        endpoint=selected_dep.endpoint,
+                        deployment_id=dep_id,
+                        endpoint=endpoint,
                         capability=request.capability,
                         reason=f"Cold start — GPU has {self._gpu_tracker.available_vram_gb}GB free",
                         requires_cold_start=True,
@@ -178,8 +182,8 @@ class CapabilityRouter(IRouter):
                     if evict_id:
                         return RouteDecision(
                             model_id=selected_model.id,
-                            deployment_id=selected_dep.deployment_id,
-                            endpoint=selected_dep.endpoint,
+                            deployment_id=dep_id,
+                            endpoint=endpoint,
                             capability=request.capability,
                             reason=f"Cold start — evicting {evict_id} to free GPU space",
                             requires_cold_start=True,
@@ -194,8 +198,8 @@ class CapabilityRouter(IRouter):
                 # No GPU tracker — simple cold start
                 return RouteDecision(
                     model_id=selected_model.id,
-                    deployment_id=selected_dep.deployment_id,
-                    endpoint=selected_dep.endpoint,
+                    deployment_id=dep_id,
+                    endpoint=endpoint,
                     capability=request.capability,
                     reason="Cold start required for unloaded deployment",
                     requires_cold_start=True,
