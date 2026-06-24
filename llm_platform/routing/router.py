@@ -89,6 +89,9 @@ class CapabilityRouter(IRouter):
                 lifecycle = lifecycle_by_deployment.get(dep.deployment_id)
                 if lifecycle and lifecycle.state == LifecycleState.FAILED:
                     continue
+                # Skip permanently broken deployments
+                if dep.status == DeploymentStatus.FAILED:
+                    continue
 
                 if dep.status == DeploymentStatus.READY:
                     # Preferred model shortcut

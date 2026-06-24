@@ -145,16 +145,42 @@ class ChatService:
                 if deployment and deployment.status == DeploymentStatus.READY:
                     logger.info(f"Cold start already completed by another request for {model.name}, reusing.")
                     route.endpoint = deployment.endpoint
+                elif deployment and deployment.status == DeploymentStatus.FAILED:
+                    logger.warning(f"Deployment for {model.name} is FAILED. Falling back to a busy deployment.")
+                    deployment = self._find_fallback_deployment(request.capability)
+                    if deployment is None:
+                        from llm_platform.utils.errors import RoutingError
+                        raise RoutingError(f"No running deployment available for capability: {request.capability}")
+                    route.deployment_id = deployment.deployment_id
+                    route.endpoint = deployment.endpoint
                 else:
                     logger.info(
                         f"{'Cold start' if route.requires_cold_start else 'New instance'} "
                         f"required for model {model.name}. Deploying container..."
                     )
-                    deployment = await self.deploy_vllm_container(model, deployment)
-                    route.endpoint = deployment.endpoint
-                    route.deployment_id = deployment.deployment_id
-                    if self._gpu_tracker:
-                        self._gpu_tracker.allocate(deployment.deployment_id, model.memory_requirement_gb)
+                    try:
+                        deployment = await self.deploy_vllm_container(model, deployment)
+                        route.endpoint = deployment.endpoint
+                        route.deployment_id = deployment.deployment_id
+                        if self._gpu_tracker:
+                            self._gpu_tracker.allocate(deployment.deployment_id, model.memory_requirement_gb)
+                    except Exception as cold_start_error:
+                        # Mark as FAILED so the router permanently skips this deployment.
+                        logger.error(f"Cold start failed for {model.name}: {cold_start_error}. Marking FAILED and falling back.")
+                        if deployment:
+                            deployment.status = DeploymentStatus.FAILED
+                            self._registry.update_deployment(deployment)
+                        # Fall back: queue at any already-running READY deployment.
+                        deployment = self._find_fallback_deployment(request.capability)
+                        if deployment is None:
+                            from llm_platform.utils.errors import RoutingError
+                            raise RoutingError(
+                                f"Cold start failed for {model.name} and no fallback deployment is available "
+                                f"for capability: {request.capability}"
+                            ) from cold_start_error
+                        route.deployment_id = deployment.deployment_id
+                        route.endpoint = deployment.endpoint
+
 
         # ── Lifecycle Touch ──────────────────────────────────────────
         lifecycle = self._registry.get_lifecycle(route.deployment_id)
@@ -231,7 +257,38 @@ class ChatService:
             message=message,
         )
 
+    def _find_fallback_deployment(self, capability: str) -> "DeploymentRecord | None":
+        """Return any READY deployment whose model supports the given capability.
+
+        Used when a cold start fails or the GPU is full: instead of erroring,
+        we queue the request at whichever model is already running.
+        Picks the deployment with the fewest active requests (Power of Two Choices
+        degrades to min-load when only one option exists).
+        """
+        from llm_platform.schemas.enums import DeploymentStatus
+
+        deployments = self._registry.list_deployments()
+        models = {m.id: m for m in self._registry.list_models()}
+
+        candidates = []
+        for dep in deployments:
+            if dep.status != DeploymentStatus.READY:
+                continue
+            model = models.get(dep.model_id)
+            if model and capability in [str(c) for c in model.capabilities]:
+                active = 0
+                if self._concurrency_tracker:
+                    active = self._concurrency_tracker.get_active_requests(dep.deployment_id)
+                candidates.append((active, dep))
+
+        if not candidates:
+            return None
+        # Return the deployment with the lowest current load
+        candidates.sort(key=lambda x: x[0])
+        return candidates[0][1]
+
     async def unload_deployment(self, deployment_id: str) -> None:
+
         """Unload a deployment by stopping and removing its container."""
         import docker
         from llm_platform.schemas.enums import DeploymentStatus

@@ -50,6 +50,28 @@ if TYPE_CHECKING:
     from fastapi import FastAPI
 
 
+def _estimate_vram_gb(repo_id: str) -> int:
+    """Estimate GPU VRAM (GB) from a HuggingFace repo ID based on parameter count.
+
+    Uses the parameter suffix in the model name as a heuristic so the GPU
+    tracker knows when to stop spinning up new containers and start queuing
+    requests at already-running ones instead.
+    """
+    name = repo_id.lower()
+    # Match common size suffixes, largest first so '70b' beats '7b'
+    for suffix, gb in [
+        ("70b",  140), ("72b",  144),
+        ("34b",   70), ("32b",   65),
+        ("13b",   26), ("14b",   29),
+        ("7b",    15), ("8b",    16),
+        ("3b",     7), ("2.5b",   6),
+        ("1.8b",   4), ("1.5b",   4), ("1.1b",   3),
+        ("0.5b",   2), ("0.5",    2),
+    ]:
+        if suffix in name:
+            return gb
+    return 8  # conservative default for unknown sizes
+
 @dataclass(slots=True)
 class PlatformApplication:
     """Assembled platform dependencies.
@@ -191,7 +213,7 @@ class PlatformApplicationBuilder:
                                 family="unknown",
                                 engine="vllm",
                                 capabilities=["chat"],
-                                memory_requirement_gb=4,
+                                memory_requirement_gb=_estimate_vram_gb(repo_id),
                                 ownership="system",
                                 status=ModelStatus.REGISTERED,
                                 created_at=datetime.now(timezone.utc),
@@ -209,7 +231,7 @@ class PlatformApplicationBuilder:
                                 metadata={}
                             )
                             deployment_repository.save(new_deployment)
-                            print(f"[SSD Sync] Successfully registered {repo_id} as PENDING.")
+                            print(f"[SSD Sync] Successfully registered {repo_id} as PENDING (est. {_estimate_vram_gb(repo_id)}GB VRAM).")
             
             existing_models = model_repository.list()
             print(f"[Bootstrap] Initialized with {len(existing_models)} models in registry.")
