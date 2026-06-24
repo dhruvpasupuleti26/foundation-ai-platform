@@ -58,6 +58,8 @@ class ChatService:
         self._num_speculative_tokens = num_speculative_tokens
         # Per-model lock: prevents concurrent cold-start races
         self._cold_start_locks: dict[str, asyncio.Lock] = {}
+        # Global routing lock: ensures atomic decisions for concurrent requests
+        self._routing_lock = asyncio.Lock()
 
     async def chat(self, request: ChatCompletionRequest) -> ChatCompletionResponse:
         """Asynchronously handles the entire chat request workflow."""
@@ -87,22 +89,31 @@ class ChatService:
         deployments = self._registry.list_deployments()
 
         # 3. Dynamic Router and Text Generation
-        lifecycle_records = [
-            record 
-            for record in (self._registry.get_lifecycle(d.deployment_id) for d in deployments) 
-            if record
-        ]
-        
-        route = self._router.route(
-            RouteRequest(
-                capability=request.capability,
-                preferred_model_id=model_record.id if model_record else None,
-                metadata={**request.metadata, "_registry": self._registry},
-            ),
-            models=models,
-            deployments=deployments,
-            lifecycle_records=lifecycle_records,
-        )
+        async with self._routing_lock:
+            lifecycle_records = [
+                record 
+                for record in (self._registry.get_lifecycle(d.deployment_id) for d in deployments) 
+                if record
+            ]
+            
+            route = self._router.route(
+                RouteRequest(
+                    capability=request.capability,
+                    preferred_model_id=model_record.id if model_record else None,
+                    metadata={**request.metadata, "_registry": self._registry},
+                ),
+                models=models,
+                deployments=deployments,
+                lifecycle_records=lifecycle_records,
+            )
+            
+            # Immediately reserve GPU to prevent subsequent concurrent requests from over-subscribing it
+            if route.requires_cold_start or route.requires_new_instance:
+                if self._gpu_tracker and route.deployment_id:
+                    # The GPU tracker's `allocate` safely overwrites if called multiple times for the same deployment ID
+                    model_for_alloc = next((m for m in models if m.id == route.model_id), None)
+                    if model_for_alloc:
+                        self._gpu_tracker.allocate(route.deployment_id, model_for_alloc.memory_requirement_gb)
         
         # ── Handle Eviction ──────────────────────────────────────────
         if route.evict_deployment_id:
@@ -146,9 +157,11 @@ class ChatService:
                         deployment = await self.deploy_vllm_container(model, deployment)
                         route.endpoint = deployment.endpoint
                         route.deployment_id = deployment.deployment_id
-                        if self._gpu_tracker:
-                            self._gpu_tracker.allocate(deployment.deployment_id, model.memory_requirement_gb)
                     except Exception as cold_start_error:
+                        # Release GPU allocation if cold start failed
+                        if self._gpu_tracker and deployment:
+                            self._gpu_tracker.release(deployment.deployment_id)
+                        
                         # Mark as FAILED so the router permanently skips this deployment.
                         logger.error(f"Cold start failed for {model.name}: {cold_start_error}. Marking FAILED and falling back.")
                         if deployment:

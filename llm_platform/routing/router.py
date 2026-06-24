@@ -196,6 +196,19 @@ class CapabilityRouter(IRouter):
                 requires_cold_start=False,
             )
 
+        # 3d. Fallback to PENDING deployments (waiting for their cold start to finish)
+        pending = [ (m, d) for m, d in unloaded if d and d.status == DeploymentStatus.PENDING ]
+        if pending:
+            selected_model, selected_dep = random.choice(pending)
+            return RouteDecision(
+                model_id=selected_model.id,
+                deployment_id=selected_dep.deployment_id,
+                endpoint=selected_dep.endpoint,
+                capability=request.capability,
+                reason="Concurrency fallback: Queuing on PENDING deployment (waiting for cold start)",
+                requires_cold_start=True, # Set to True so chat.py correctly waits on the lock!
+            )
+
         raise RoutingError(
             f"No eligible deployment found for capability: {request.capability}"
         )
