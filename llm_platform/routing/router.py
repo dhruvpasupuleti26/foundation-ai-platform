@@ -77,12 +77,13 @@ class CapabilityRouter(IRouter):
         # ── Phase 2: Categorize deployments ──────────────────────────
         ready_idle: list[tuple[ModelRecord, DeploymentRecord]] = []
         ready_busy: list[tuple[ModelRecord, DeploymentRecord]] = []
-        unloaded: list[tuple[ModelRecord, DeploymentRecord]] = []
+        booting: list[tuple[ModelRecord, DeploymentRecord]] = []
+        sitting_on_disk: list[tuple[ModelRecord, DeploymentRecord]] = []
 
         for model in capable_models:
             model_deployments = deployments_by_model.get(model.id, [])
             if not model_deployments:
-                unloaded.append((model, None))
+                sitting_on_disk.append((model, None))
                 continue
 
             for dep in model_deployments:
@@ -118,8 +119,11 @@ class CapabilityRouter(IRouter):
                         # HOT lifecycle not yet initialized, treat as idle
                         ready_idle.append((model, dep))
                 elif dep.status in {DeploymentStatus.UNLOADED, DeploymentStatus.PENDING}:
-                    # PENDING = registered but no container yet → treat as cold-startable
-                    unloaded.append((model, dep))
+                    is_allocated = self._gpu_tracker and dep.deployment_id in self._gpu_tracker.allocations
+                    if is_allocated:
+                        booting.append((model, dep))
+                    else:
+                        sitting_on_disk.append((model, dep))
 
         # ── Phase 3: Route Decision ──────────────────────────────────
 
@@ -136,11 +140,11 @@ class CapabilityRouter(IRouter):
                 requires_cold_start=False,
             )
 
-        # 3b. All running deployments are busy (or none exist). Try to Scale-Out or Cold Start!
-        if unloaded:
-            # We want to spin up a new model from unloaded
+        # 3b. All running deployments are busy (or none exist). Try to Scale-Out using fresh models!
+        if sitting_on_disk:
+            # We want to spin up a new model from sitting_on_disk
             scale_out_candidates = []
-            for model, dep in unloaded:
+            for model, dep in sitting_on_disk:
                 if self._gpu_tracker:
                     if self._gpu_tracker.can_fit(model.memory_requirement_gb):
                         scale_out_candidates.append((model, dep, None))
@@ -177,36 +181,26 @@ class CapabilityRouter(IRouter):
                     evict_deployment_id=evict_id,
                 )
 
-        # 3c. Fallback to busy deployments using Power of Two Choices load balancing
-        if ready_busy:
-            if len(ready_busy) == 1:
-                selected_model, selected_dep = ready_busy[0]
+        # 3c. Fallback: Queue on active/booting deployments using Power of Two Choices load balancing
+        active_deployments = ready_busy + booting
+        if active_deployments:
+            if len(active_deployments) == 1:
+                selected_model, selected_dep = active_deployments[0]
             else:
-                c1, c2 = random.sample(ready_busy, 2)
+                c1, c2 = random.sample(active_deployments, 2)
                 load1 = self._concurrency_tracker.get_active_requests(c1[1].deployment_id) if self._concurrency_tracker else 0
                 load2 = self._concurrency_tracker.get_active_requests(c2[1].deployment_id) if self._concurrency_tracker else 0
                 selected_model, selected_dep = c1 if load1 <= load2 else c2
 
+            is_booting = selected_dep.status in {DeploymentStatus.UNLOADED, DeploymentStatus.PENDING}
+            
             return RouteDecision(
                 model_id=selected_model.id,
                 deployment_id=selected_dep.deployment_id,
                 endpoint=selected_dep.endpoint,
                 capability=request.capability,
-                reason=f"Concurrency fallback: Queuing on busy deployment {selected_dep.deployment_id} (Power of Two Choices)",
-                requires_cold_start=False,
-            )
-
-        # 3d. Fallback to PENDING deployments (waiting for their cold start to finish)
-        pending = [ (m, d) for m, d in unloaded if d and d.status == DeploymentStatus.PENDING ]
-        if pending:
-            selected_model, selected_dep = random.choice(pending)
-            return RouteDecision(
-                model_id=selected_model.id,
-                deployment_id=selected_dep.deployment_id,
-                endpoint=selected_dep.endpoint,
-                capability=request.capability,
-                reason="Concurrency fallback: Queuing on PENDING deployment (waiting for cold start)",
-                requires_cold_start=True, # Set to True so chat.py correctly waits on the lock!
+                reason=f"Concurrency fallback: Queuing on {'booting' if is_booting else 'busy'} deployment (Power of Two Choices)",
+                requires_cold_start=is_booting,
             )
 
         raise RoutingError(
