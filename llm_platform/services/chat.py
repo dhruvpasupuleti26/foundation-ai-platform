@@ -15,6 +15,8 @@ from datetime import datetime, timezone
 from time import perf_counter
 from typing import TYPE_CHECKING
 
+_global_boot_lock = asyncio.Lock()
+
 from llm_platform.interfaces.lifecycle import ILifecycleManager
 from llm_platform.interfaces.model_server import IModelServer
 from llm_platform.interfaces.registry import IRegistry
@@ -417,30 +419,37 @@ class ChatService:
         sanitized_name = model_record.name.replace("/", "-").replace(".", "-").replace(":", "-").lower()
         container_name = f"vllm-{sanitized_name}"
         
-        def run_docker():
-            client = docker.from_env()
-            try:
-                existing = client.containers.get(container_name)
-                existing.remove(force=True)
-            except docker.errors.NotFound:
-                pass
-                
-            device_request = docker.types.DeviceRequest(count=-1, capabilities=[['gpu']])
-            
-            # Ensure the cache directory exists before mounting
-            host_cache_path = Path(self._model_cache_dir).resolve()
-            host_cache_path.mkdir(parents=True, exist_ok=True)
-            host_path = str(host_cache_path)
-            
-            # Mount it exactly where the huggingface hub inside the container expects it
-            container_path = "/root/.cache/huggingface/hub"
-            
-            # Calculate memory utilization ratio
+        async with _global_boot_lock:
             utilization = 0.90
             if self._gpu_tracker:
-                # Use exactly 23.0 to approximate physical fraction on typical 24GB class cards like L4
-                ratio = model_record.memory_requirement_gb / 23.0
-                utilization = max(0.15, min(0.95, ratio))
+                others_gb = 0
+                deployments = self._registry.list_deployments()
+                for dep in deployments:
+                    if getattr(dep, "deployment_id", getattr(dep, "id", None)) != getattr(deployment, "deployment_id", getattr(deployment, "id", None)) and dep.status == DeploymentStatus.READY:
+                        rec = self._registry.get_model(dep.model_id)
+                        if rec:
+                            others_gb += rec.memory_requirement_gb
+                            
+                ratio = (model_record.memory_requirement_gb + others_gb) / 23.0
+                utilization = min(0.95, ratio)
+            
+            def run_docker():
+                client = docker.from_env()
+                try:
+                    existing = client.containers.get(container_name)
+                    existing.remove(force=True)
+                except docker.errors.NotFound:
+                    pass
+                    
+                device_request = docker.types.DeviceRequest(count=-1, capabilities=[['gpu']])
+                
+                # Ensure the cache directory exists before mounting
+                host_cache_path = Path(self._model_cache_dir).resolve()
+                host_cache_path.mkdir(parents=True, exist_ok=True)
+                host_path = str(host_cache_path)
+                
+                # Mount it exactly where the huggingface hub inside the container expects it
+                container_path = "/root/.cache/huggingface/hub"
                 
             # Build the vLLM command
             command = f"--model {model_record.name} --port {port} --host 0.0.0.0 --gpu-memory-utilization {utilization:.2f}"
@@ -473,42 +482,39 @@ class ChatService:
                 device_requests=[device_request]
             )
             
-        def cleanup_docker():
-            client = docker.from_env()
-            try:
-                c = client.containers.get(container_name)
-                logger.error(f"========== FATAL: CONTAINER {container_name} CRASHED ==========")
-                logger.error(c.logs().decode('utf-8'))
-                logger.error("=================================================================")
-                c.remove(force=True)
-            except docker.errors.NotFound:
-                pass
+            def cleanup_docker():
+                client = docker.from_env()
+                try:
+                    c = client.containers.get(container_name)
+                    c.remove(force=True)
+                except docker.errors.NotFound:
+                    pass
                 
-        try:
-            await run_in_threadpool(run_docker)
-            
-            # Poll readiness health check
-            import httpx
-            import asyncio
-            url = f"http://localhost:{port}/v1/models"
-            ready = False
-            async with httpx.AsyncClient() as client:
-                for _ in range(60):
-                    try:
-                        response = await client.get(url, timeout=2.0)
-                        if response.status_code == 200:
-                            ready = True
-                            break
-                    except (httpx.ConnectError, httpx.TimeoutException, httpx.HTTPError):
-                        pass
-                    await asyncio.sleep(5)
-                    
-            if not ready:
-                await run_in_threadpool(cleanup_docker)
-                raise RuntimeError(f"vLLM container for {model_record.name} failed to become healthy on port {port}")
-        except Exception:
-            self._reserved_ports.discard(port)
-            raise
+            try:
+                await run_in_threadpool(run_docker)
+                
+                # Poll readiness health check
+                import httpx
+                import asyncio
+                url = f"http://localhost:{port}/v1/models"
+                ready = False
+                async with httpx.AsyncClient() as client:
+                    for _ in range(60):
+                        try:
+                            response = await client.get(url, timeout=2.0)
+                            if response.status_code == 200:
+                                ready = True
+                                break
+                        except (httpx.ConnectError, httpx.TimeoutException, httpx.HTTPError):
+                            pass
+                        await asyncio.sleep(5)
+                        
+                if not ready:
+                    await run_in_threadpool(cleanup_docker)
+                    raise RuntimeError(f"vLLM container for {model_record.name} failed to become healthy on port {port}")
+            except Exception:
+                self._reserved_ports.discard(port)
+                raise
             
         endpoint = f"http://localhost:{port}"
         
