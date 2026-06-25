@@ -420,20 +420,14 @@ class ChatService:
         container_name = f"vllm-{sanitized_name}"
         
         async with _global_boot_lock:
-            utilization = 0.90
-            if self._gpu_tracker:
-                others_gb = 0
-                deployments = self._registry.list_deployments()
-                for dep in deployments:
-                    dep_id = getattr(dep, "deployment_id", getattr(dep, "id", None))
-                    curr_id = existing_deployment.deployment_id if existing_deployment else None
-                    if dep_id != curr_id and dep.status == DeploymentStatus.READY:
-                        rec = self._registry.get_model(dep.model_id)
-                        if rec:
-                            others_gb += rec.memory_requirement_gb
-                            
-                ratio = (model_record.memory_requirement_gb + others_gb) / 23.0
-                utilization = min(0.95, ratio)
+            # vLLM's --gpu-memory-utilization allocates an absolute fraction of the physical GPU exclusively for this process.
+            # To ensure models can coexist without crashing (OOM), we just divide the model's required memory by the total GPU memory.
+            # We multiply by 1.2 to give a 20% buffer for KV cache.
+            # Using 24.0GB as the hardware GPU size.
+            ratio = (model_record.memory_requirement_gb * 1.2) / 24.0
+            
+            # Ensure it never goes below 0.10 (to avoid vLLM crashing) and never above 0.95
+            utilization = max(0.10, min(0.95, ratio))
             
             def run_docker():
                 client = docker.from_env()
