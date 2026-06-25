@@ -503,7 +503,7 @@ class ChatService:
                 url = f"http://localhost:{port}/v1/models"
                 ready = False
                 async with httpx.AsyncClient() as client:
-                    for _ in range(120):  # 10 minutes (120 * 5s)
+                    for _ in range(360):  # 30 minutes (360 * 5s)
                         try:
                             response = await client.get(url, timeout=2.0)
                             if response.status_code == 200:
