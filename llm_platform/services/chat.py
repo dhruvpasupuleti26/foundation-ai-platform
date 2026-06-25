@@ -488,6 +488,8 @@ class ChatService:
                 client = docker.from_env()
                 try:
                     c = client.containers.get(container_name)
+                    logs = c.logs(tail=50).decode('utf-8', errors='ignore')
+                    logger.error(f"========== FATAL: CONTAINER {container_name} CRASHED OR TIMED OUT ==========\n{logs}")
                     c.remove(force=True)
                 except docker.errors.NotFound:
                     pass
@@ -501,7 +503,7 @@ class ChatService:
                 url = f"http://localhost:{port}/v1/models"
                 ready = False
                 async with httpx.AsyncClient() as client:
-                    for _ in range(60):
+                    for _ in range(120):  # 10 minutes (120 * 5s)
                         try:
                             response = await client.get(url, timeout=2.0)
                             if response.status_code == 200:
