@@ -285,13 +285,21 @@ class PlatformApplicationBuilder:
                         if not any(m.name == repo_id for m in existing_models):
                             print(f"[SSD Sync] Found un-registered model on SSD: {repo_id}. Auto-registering...")
                             model_id = str(uuid.uuid4())
+                            
+                            # Assign capabilities based on model identity
+                            capabilities = ["chat"]
+                            if "deepseek" in repo_id.lower():
+                                capabilities = ["reasoning"]
+                            elif "1.5b" in repo_id.lower() and "qwen" in repo_id.lower():
+                                capabilities = ["summarization"]
+                            
                             new_model = ModelRecord(
                                 id=model_id,
                                 name=repo_id,
                                 version="latest",
                                 family="unknown",
                                 engine="vllm",
-                                capabilities=["chat"],
+                                capabilities=capabilities,
                                 memory_requirement_gb=_read_model_vram_from_cache(d),
                                 ownership="system",
                                 status=ModelStatus.REGISTERED,
