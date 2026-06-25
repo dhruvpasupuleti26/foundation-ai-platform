@@ -112,9 +112,10 @@ async def send_request(
     results.append(record)
 
     tag = "OK" if status_code == 200 else "FAIL"
+    detail = model_name if status_code == 200 else error[:80]
     print(
         f"  [{tag}] Req {index:04d} | {capability:15s} | "
-        f"{latency_ms:10.0f}ms | {model_name}"
+        f"{latency_ms:10.0f}ms | {detail}"
     )
 
 

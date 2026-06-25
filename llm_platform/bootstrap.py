@@ -282,6 +282,13 @@ class PlatformApplicationBuilder:
                 for d in cache_path.iterdir():
                     if d.is_dir() and d.name.startswith("models--"):
                         repo_id = d.name.replace("models--", "").replace("--", "/")
+                        
+                        # Skip large models (7B+) that would starve smaller models on a single GPU
+                        vram_estimate = _read_model_vram_from_cache(d)
+                        if vram_estimate > 10:
+                            print(f"[SSD Sync] Skipping large model {repo_id} ({vram_estimate}GB) to preserve GPU for multi-model serving.")
+                            continue
+                        
                         if not any(m.name == repo_id for m in existing_models):
                             print(f"[SSD Sync] Found un-registered model on SSD: {repo_id}. Auto-registering...")
                             model_id = str(uuid.uuid4())
@@ -323,41 +330,6 @@ class PlatformApplicationBuilder:
             
             existing_models = model_repository.list()
             print(f"[Bootstrap] Initialized with {len(existing_models)} models in registry.")
-
-            target_model_name = "Qwen/Qwen2.5-7B-Instruct"
-            
-            if not any(m.name == target_model_name for m in existing_models):
-                import uuid
-                from datetime import datetime, timezone
-                from llm_platform.schemas.registry import ModelRecord, DeploymentRecord
-                from llm_platform.schemas.enums import ModelStatus, DeploymentStatus
-
-                model_id = str(uuid.uuid4())
-                new_model = ModelRecord(
-                    id=model_id,
-                    name=target_model_name,
-                    version="2.5",
-                    family="qwen",
-                    engine="vllm",
-                    capabilities=["chat"],
-                    memory_requirement_gb=16,
-                    ownership="system",
-                    status=ModelStatus.REGISTERED,
-                    created_at=datetime.now(timezone.utc),
-                    metadata={}
-                )
-                model_repository.save(new_model)
-
-                new_deployment = DeploymentRecord(
-                    deployment_id=str(uuid.uuid4()),
-                    model_id=model_id,
-                    endpoint="http://localhost:pending",
-                    engine="vllm",
-                    status=DeploymentStatus.PENDING,
-                    created_at=datetime.now(timezone.utc),
-                    metadata={}
-                )
-                deployment_repository.save(new_deployment)
                 
         except Exception as e:
             print(f"Seeding issue: {e}")
