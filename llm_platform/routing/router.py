@@ -155,6 +155,11 @@ class CapabilityRouter(IRouter):
                 else:
                     scale_out_candidates.append((model, dep, None))
 
+            # If GPU is currently full but nothing is evictable (all models still booting),
+            # still queue a cold start — the _global_boot_lock will serialize it safely.
+            if not scale_out_candidates:
+                scale_out_candidates = [(model, dep, None) for model, dep in sitting_on_disk]
+
             if scale_out_candidates:
                 # Prioritize preferred_model_id if specified
                 if request.preferred_model_id:
@@ -169,7 +174,7 @@ class CapabilityRouter(IRouter):
                 if evict_id:
                     reason += f" (evicting {evict_id} for GPU space)"
                 elif self._gpu_tracker:
-                    reason += f" (GPU has {self._gpu_tracker.available_vram_gb}GB free)"
+                    reason += f" (GPU has {self._gpu_tracker.available_vram_gb}GB free, queuing behind boot lock)"
 
                 return RouteDecision(
                     model_id=selected_model.id,
