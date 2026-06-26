@@ -459,8 +459,9 @@ class ChatService:
                 # Mount it exactly where the huggingface hub inside the container expects it
                 container_path = "/root/.cache/huggingface/hub"
                 
-                # Build the vLLM command
-                command = f"--model {model_record.name} --port {port} --host 0.0.0.0 --gpu-memory-utilization {utilization:.2f}"
+                # Build the vLLM command. We enforce a max-model-len of 4096 to prevent KV cache OOM
+                # on models that default to massive context windows (like DeepSeek's 128k).
+                command = f"--model {model_record.name} --port {port} --host 0.0.0.0 --gpu-memory-utilization {utilization:.2f} --max-model-len 4096"
                 
                 # EAGLE Speculative Decoding
                 if model_record.vllm_eagle_head:
