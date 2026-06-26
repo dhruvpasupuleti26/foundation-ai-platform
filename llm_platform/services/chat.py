@@ -353,6 +353,16 @@ class ChatService:
             elif "deepseek" in arch_lower:
                 family = "deepseek"
                 
+        # Determine capability based on model identity
+        hf_repo_lower = hf_repo.lower()
+        capabilities = ["chat"]
+        if "phi-3" in hf_repo_lower:
+            capabilities = ["math"]
+        elif "deepseek" in hf_repo_lower:
+            capabilities = ["reasoning"]
+        elif "qwen" in hf_repo_lower:
+            capabilities = ["summarization"]
+
         # Register Model
         from llm_platform.schemas.registry import ModelRegistrationRequest
         registration_request = ModelRegistrationRequest(
@@ -360,7 +370,7 @@ class ChatService:
             version="1.0",
             family=family,
             engine="vllm",
-            capabilities=["chat"],
+            capabilities=capabilities,
             vllm_eagle_head=eagle_head_repo,
             memory_requirement_gb=int(report.estimated_gpu_memory_gb or 16),
             ownership="user",
@@ -564,13 +574,31 @@ class ChatService:
         for capability in capabilities:
             # Find the best model for this capability
             eligible_models = [m for m in models if capability in m.capabilities]
+            
             if not eligible_models:
-                logger.warning(f"No models found for capability '{capability}', skipping pre-warm.")
-                continue
-                
-            # Prefer models with more capabilities
-            eligible_models.sort(key=lambda m: len(m.capabilities), reverse=True)
-            selected_model = eligible_models[0]
+                logger.warning(f"No models found for capability '{capability}', attempting to auto-onboard default...")
+                default_repos = {
+                    "chat": "TinyLlama/TinyLlama-1.1B-Chat-v1.0",
+                    "reasoning": "deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B",
+                    "summarization": "Qwen/Qwen2.5-1.5B-Instruct",
+                    "math": "microsoft/Phi-3-mini-4k-instruct"
+                }
+                repo = default_repos.get(capability)
+                if repo:
+                    try:
+                        selected_model = await self.onboard_model(repo)
+                        # Add it to the local models list so it doesn't get missed later
+                        models.append(selected_model)
+                    except Exception as e:
+                        logger.error(f"Failed to auto-onboard {repo}: {e}")
+                        continue
+                else:
+                    logger.error(f"No default repo configured for capability '{capability}'.")
+                    continue
+            else:
+                # Prefer models with more capabilities
+                eligible_models.sort(key=lambda m: len(m.capabilities), reverse=True)
+                selected_model = eligible_models[0]
             
             logger.info(f"Pre-warming {selected_model.name} for capability '{capability}'...")
             
