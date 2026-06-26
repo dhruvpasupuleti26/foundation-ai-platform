@@ -439,8 +439,8 @@ class ChatService:
             safe_memory_gb = max(4.0, model_record.memory_requirement_gb * 1.5)
             ratio = safe_memory_gb / total_hardware_vram
             
-            # Ensure it never goes below 0.15 (to avoid vLLM crashing) and never above 0.95
-            utilization = max(0.15, min(0.95, ratio))
+            # Ensure it never goes below 0.22 (to give 10.5GB on 48GB GPUs, enough for Phi-3 + KV Cache)
+            utilization = max(0.22, min(0.95, ratio))
             
             def run_docker():
                 client = docker.from_env()

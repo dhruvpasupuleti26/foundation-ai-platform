@@ -28,7 +28,7 @@ serving:
   default_placement: cpu
   fallback_placements: []
   model_cache_dir: ./data/model-cache
-  gpu_vram_gb: 24
+  gpu_vram_gb: 48
   num_speculative_tokens: 5
   vllm:
     base_url: http://localhost:8001
