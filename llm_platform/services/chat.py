@@ -461,7 +461,10 @@ class ChatService:
                 
                 # Build the vLLM command. We enforce a max-model-len of 4096 to prevent KV cache OOM
                 # on models that default to massive context windows (like DeepSeek's 128k).
-                command = f"--model {model_record.name} --port {port} --host 0.0.0.0 --gpu-memory-utilization {utilization:.2f} --max-model-len 4096"
+                # However, TinyLlama only supports 2048, so we must exclude it.
+                command = f"--model {model_record.name} --port {port} --host 0.0.0.0 --gpu-memory-utilization {utilization:.2f}"
+                if "tinyllama" not in model_record.name.lower():
+                    command += " --max-model-len 4096"
                 
                 # EAGLE Speculative Decoding
                 if model_record.vllm_eagle_head:
