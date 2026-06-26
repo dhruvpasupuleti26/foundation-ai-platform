@@ -294,10 +294,13 @@ class PlatformApplicationBuilder:
                             model_id = str(uuid.uuid4())
                             
                             # Assign capabilities based on model identity
+                            repo_id_lower = repo_id.lower()
                             capabilities = ["chat"]
-                            if "deepseek" in repo_id.lower():
+                            if "phi-3" in repo_id_lower:
+                                capabilities = ["math"]
+                            elif "deepseek" in repo_id_lower:
                                 capabilities = ["reasoning"]
-                            elif "1.5b" in repo_id.lower() and "qwen" in repo_id.lower():
+                            elif "qwen" in repo_id_lower:
                                 capabilities = ["summarization"]
                             
                             new_model = ModelRecord(

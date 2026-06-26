@@ -24,9 +24,10 @@ import httpx
 BASE_URL = "http://localhost:8000"
 
 CAPABILITY_WEIGHTS = {
-    "chat": 0.60,
-    "summarization": 0.20,
-    "reasoning": 0.20,
+    "chat": 0.25,
+    "summarization": 0.25,
+    "reasoning": 0.25,
+    "math": 0.25,
 }
 
 PROMPTS = {
@@ -55,6 +56,13 @@ PROMPTS = {
         "There are 3 boxes. One has apples, one has oranges, one has both. All labels are wrong. You pick one fruit from one box. How do you label all boxes?",
         "Is it possible for a month to have 5 Mondays, 5 Tuesdays, and 5 Wednesdays? Explain.",
         "If you overtake the person in 2nd place in a race, what place are you in now?",
+    ],
+    "math": [
+        "Solve for x: 2x + 5 = 15",
+        "What is the derivative of x^2 + 3x?",
+        "Calculate the area of a circle with radius 5.",
+        "If a train travels 60 mph for 2.5 hours, how far does it go?",
+        "What is the square root of 144?",
     ],
 }
 

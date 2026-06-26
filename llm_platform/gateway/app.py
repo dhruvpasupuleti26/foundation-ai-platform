@@ -18,7 +18,7 @@ async def lifespan(app: FastAPI):
     try:
         platform = app.state.platform_application
         asyncio.create_task(
-            platform.chat_service.prewarm_capabilities(["chat", "summarization", "reasoning"])
+            platform.chat_service.prewarm_capabilities(["chat", "summarization", "reasoning", "math"])
         )
     except Exception as e:
         import logging
