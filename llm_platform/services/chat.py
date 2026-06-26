@@ -475,7 +475,7 @@ class ChatService:
                     )
                 
                 return client.containers.run(
-                    image="vllm/vllm-openai:latest",
+                    image="vllm/vllm-openai:v0.4.2-cu118",
                     command=command,
                     name=container_name,
                     detach=True,
