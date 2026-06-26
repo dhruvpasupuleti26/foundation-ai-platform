@@ -14,6 +14,16 @@ from llm_platform.services.lifecycle_worker import run_lifecycle_loop
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     worker_task = asyncio.create_task(run_lifecycle_loop(app))
+    
+    try:
+        platform = app.state.platform_application
+        asyncio.create_task(
+            platform.chat_service.prewarm_capabilities(["chat", "summarization", "reasoning"])
+        )
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).error(f"Failed to trigger pre-warm: {e}")
+        
     yield
     worker_task.cancel()
     try:

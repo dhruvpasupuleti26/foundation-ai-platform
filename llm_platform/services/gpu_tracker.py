@@ -96,6 +96,9 @@ class GPUResourceTracker:
 
             if deployment.status != DeploymentStatus.READY:
                 continue
+                
+            if deployment.metadata.get("is_permanent", False):
+                continue
 
             lifecycle = registry.get_lifecycle(deployment_id)
             if not lifecycle:

@@ -26,6 +26,9 @@ async def run_lifecycle_loop(app: FastAPI):
                 if deployment.status != DeploymentStatus.READY:
                     continue
                     
+                if deployment.metadata.get("is_permanent", False):
+                    continue
+                    
                 record = platform.registry.get_lifecycle(deployment.deployment_id)
                 if not record:
                     continue

@@ -546,3 +546,70 @@ class ChatService:
             self._registry.update_deployment(deployment_record)
             
         return deployment_record
+
+    async def prewarm_capabilities(self, capabilities: list[str]) -> None:
+        """Eagerly loads one model for each requested capability at startup.
+        
+        The prewarmed deployments are marked as 'is_permanent' so they bypass
+        the scale-to-zero lifecycle worker and GPU eviction.
+        """
+        import uuid
+        from llm_platform.schemas.registry import DeploymentRecord
+        from llm_platform.schemas.enums import DeploymentStatus
+        
+        logger.info(f"Pre-warming baseline models for capabilities: {capabilities}")
+        models = self._registry.list_models()
+        
+        for capability in capabilities:
+            # Find the best model for this capability
+            eligible_models = [m for m in models if capability in m.capabilities]
+            if not eligible_models:
+                logger.warning(f"No models found for capability '{capability}', skipping pre-warm.")
+                continue
+                
+            # Prefer models with more capabilities
+            eligible_models.sort(key=lambda m: len(m.capabilities), reverse=True)
+            selected_model = eligible_models[0]
+            
+            logger.info(f"Pre-warming {selected_model.name} for capability '{capability}'...")
+            
+            # Create a PENDING deployment record flagged as permanent
+            dep_id = str(uuid.uuid4())
+            deployment = DeploymentRecord(
+                deployment_id=dep_id,
+                model_id=selected_model.id,
+                endpoint="",
+                engine="vllm",
+                status=DeploymentStatus.PENDING,
+                metadata={"is_permanent": True}
+            )
+            self._registry.update_deployment(deployment)
+            
+            # Reserve VRAM
+            if self._gpu_tracker:
+                self._gpu_tracker.allocate(dep_id, selected_model.memory_requirement_gb)
+                
+            # Create lifecycle record
+            if self._lifecycle_manager:
+                new_record = self._lifecycle_manager.initialize(deployment)
+                self._registry.upsert_lifecycle(new_record)
+                
+            # Deploy it (this will block until it is READY because we await it)
+            try:
+                if selected_model.id not in self._cold_start_locks:
+                    self._cold_start_locks[selected_model.id] = asyncio.Lock()
+                    
+                async with self._cold_start_locks[selected_model.id]:
+                    # deploy_vllm_container handles the actual docker run and updates the status to READY
+                    ready_deployment = await self.deploy_vllm_container(selected_model, deployment)
+                    
+                    # Ensure is_permanent is preserved
+                    ready_deployment.metadata["is_permanent"] = True
+                    self._registry.update_deployment(ready_deployment)
+                    logger.info(f"Successfully pre-warmed baseline model: {selected_model.name}")
+            except Exception as e:
+                logger.error(f"Failed to pre-warm {selected_model.name}: {e}")
+                deployment.status = DeploymentStatus.FAILED
+                self._registry.update_deployment(deployment)
+                if self._gpu_tracker:
+                    self._gpu_tracker.release(dep_id)
