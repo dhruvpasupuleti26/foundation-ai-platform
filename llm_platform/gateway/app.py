@@ -34,6 +34,16 @@ async def lifespan(app: FastAPI):
 
 def create_app(platform_application: PlatformApplication) -> FastAPI:
     app = FastAPI(title="Foundation AI Platform", lifespan=lifespan)
+    
+    from fastapi.middleware.cors import CORSMiddleware
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["*"],
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+    
     app.state.platform_application = platform_application
     app.include_router(router)
     app.include_router(v1_router)
