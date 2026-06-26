@@ -471,7 +471,7 @@ class ChatService:
                     # Fallback for models already registered in the DB without max_context_length
                     capped_len = 2048 if "tinyllama" in model_record.name.lower() else 4096
                     
-                command += f" --max-model-len {capped_len}"
+                command += f" --max-model-len {capped_len} --trust-remote-code"
                 
                 # EAGLE Speculative Decoding
                 if model_record.vllm_eagle_head:
