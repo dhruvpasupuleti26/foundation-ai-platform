@@ -432,13 +432,13 @@ class ChatService:
         async with _global_boot_lock:
             # vLLM's --gpu-memory-utilization allocates an absolute fraction of the physical GPU exclusively for this process.
             # To ensure models can coexist without crashing (OOM), we just divide the model's required memory by the total GPU memory.
-            # We multiply by 1.2 to give a 20% buffer for KV cache.
-            # Fall back to 24.0GB if gpu_tracker is somehow disabled.
+            # We guarantee at least 4GB or 1.5x the estimated requirement, whichever is higher.
             total_hardware_vram = self._gpu_tracker.total_vram_gb if self._gpu_tracker else 24.0
-            ratio = (model_record.memory_requirement_gb * 1.2) / total_hardware_vram
+            safe_memory_gb = max(4.0, model_record.memory_requirement_gb * 1.5)
+            ratio = safe_memory_gb / total_hardware_vram
             
-            # Ensure it never goes below 0.10 (to avoid vLLM crashing) and never above 0.95
-            utilization = max(0.10, min(0.95, ratio))
+            # Ensure it never goes below 0.15 (to avoid vLLM crashing) and never above 0.95
+            utilization = max(0.15, min(0.95, ratio))
             
             def run_docker():
                 client = docker.from_env()
