@@ -508,7 +508,7 @@ class ChatService:
                 url = f"http://127.0.0.1:{port}/v1/models"
                 ready = False
                 
-                logger.info(f"Waiting for vLLM container {container_name} to become healthy on port {port}...")
+                print(f"Waiting for vLLM container {container_name} to become healthy on port {port}...")
                 
                 async with httpx.AsyncClient() as client:
                     for i in range(360):  # 30 minutes (360 * 5s)
@@ -519,7 +519,7 @@ class ChatService:
                                 break
                         except (httpx.ConnectError, httpx.ReadTimeout, httpx.ConnectTimeout):
                             if i > 0 and i % 6 == 0:  # Print every 30 seconds
-                                logger.info(f"Still waiting for {container_name} to boot... (takes 2-3 minutes for weights to load into GPU)")
+                                print(f"Still waiting for {container_name} to boot... (takes 2-3 minutes for weights to load into GPU)")
                             pass
                         await asyncio.sleep(5)
                         
@@ -581,7 +581,7 @@ class ChatService:
             eligible_models = [m for m in models if capability in m.capabilities]
             
             if not eligible_models:
-                logger.warning(f"No models found for capability '{capability}', attempting to auto-onboard default...")
+                print(f"[Prewarm] No models found for capability '{capability}', attempting to auto-onboard default...")
                 default_repos = {
                     "chat": "TinyLlama/TinyLlama-1.1B-Chat-v1.0",
                     "reasoning": "deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B",
@@ -595,17 +595,17 @@ class ChatService:
                         # Add it to the local models list so it doesn't get missed later
                         models.append(selected_model)
                     except Exception as e:
-                        logger.error(f"Failed to auto-onboard {repo}: {e}")
+                        print(f"[Prewarm] Failed to auto-onboard {repo}: {e}")
                         continue
                 else:
-                    logger.error(f"No default repo configured for capability '{capability}'.")
+                    print(f"[Prewarm] No default repo configured for capability '{capability}'.")
                     continue
             else:
                 # Prefer models with more capabilities
                 eligible_models.sort(key=lambda m: len(m.capabilities), reverse=True)
                 selected_model = eligible_models[0]
             
-            logger.info(f"Pre-warming {selected_model.name} for capability '{capability}'...")
+            print(f"[Prewarm] Pre-warming {selected_model.name} for capability '{capability}'...")
             
             # Create a PENDING deployment record flagged as permanent
             dep_id = str(uuid.uuid4())
@@ -640,9 +640,9 @@ class ChatService:
                     # Ensure is_permanent is preserved
                     ready_deployment.metadata["is_permanent"] = True
                     self._registry.update_deployment(ready_deployment)
-                    logger.info(f"Successfully pre-warmed baseline model: {selected_model.name}")
+                    print(f"[Prewarm] Successfully pre-warmed baseline model: {selected_model.name}")
             except Exception as e:
-                logger.error(f"Failed to pre-warm {selected_model.name}: {e}")
+                print(f"[Prewarm] Failed to pre-warm {selected_model.name}: {e}")
                 deployment.status = DeploymentStatus.FAILED
                 self._registry.update_deployment(deployment)
                 if self._gpu_tracker:
