@@ -11,6 +11,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import math
 from datetime import datetime, timezone
 from time import perf_counter
 from typing import TYPE_CHECKING
@@ -372,7 +373,7 @@ class ChatService:
             engine="vllm",
             capabilities=capabilities,
             vllm_eagle_head=eagle_head_repo,
-            memory_requirement_gb=int(report.estimated_gpu_memory_gb or 16),
+            memory_requirement_gb=math.ceil(report.estimated_gpu_memory_gb or 16),
             ownership="user",
             metadata={
                 "architecture": report.architecture or "unknown",
