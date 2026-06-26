@@ -475,7 +475,7 @@ class ChatService:
                     )
                 
                 return client.containers.run(
-                    image="vllm/vllm-openai:v0.4.2-cu118",
+                    image="vllm/vllm-openai:latest",
                     command=command,
                     name=container_name,
                     detach=True,
@@ -505,27 +505,22 @@ class ChatService:
                 # Poll readiness health check
                 import httpx
                 import asyncio
-                url = f"http://127.0.0.1:{port}/v1/models"
+                url = f"http://localhost:{port}/v1/models"
                 ready = False
-                
-                print(f"Waiting for vLLM container {container_name} to become healthy on port {port}...")
-                
                 async with httpx.AsyncClient() as client:
-                    for i in range(360):  # 30 minutes (360 * 5s)
+                    for _ in range(360):  # 30 minutes (360 * 5s)
                         try:
                             response = await client.get(url, timeout=2.0)
                             if response.status_code == 200:
                                 ready = True
                                 break
-                        except (httpx.ConnectError, httpx.ReadTimeout, httpx.ConnectTimeout):
-                            if i > 0 and i % 6 == 0:  # Print every 30 seconds
-                                print(f"Still waiting for {container_name} to boot... (takes 2-3 minutes for weights to load into GPU)")
+                        except (httpx.ConnectError, httpx.TimeoutException, httpx.HTTPError):
                             pass
                         await asyncio.sleep(5)
                         
-                    if not ready:
-                        await run_in_threadpool(cleanup_docker)
-                        raise RuntimeError(f"vLLM container for {model_record.name} failed to become healthy on port {port}")
+                if not ready:
+                    await run_in_threadpool(cleanup_docker)
+                    raise RuntimeError(f"vLLM container for {model_record.name} failed to become healthy on port {port}")
             except Exception:
                 self._reserved_ports.discard(port)
                 raise
@@ -581,7 +576,7 @@ class ChatService:
             eligible_models = [m for m in models if capability in m.capabilities]
             
             if not eligible_models:
-                print(f"[Prewarm] No models found for capability '{capability}', attempting to auto-onboard default...")
+                logger.warning(f"No models found for capability '{capability}', attempting to auto-onboard default...")
                 default_repos = {
                     "chat": "TinyLlama/TinyLlama-1.1B-Chat-v1.0",
                     "reasoning": "deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B",
@@ -595,17 +590,17 @@ class ChatService:
                         # Add it to the local models list so it doesn't get missed later
                         models.append(selected_model)
                     except Exception as e:
-                        print(f"[Prewarm] Failed to auto-onboard {repo}: {e}")
+                        logger.error(f"Failed to auto-onboard {repo}: {e}")
                         continue
                 else:
-                    print(f"[Prewarm] No default repo configured for capability '{capability}'.")
+                    logger.error(f"No default repo configured for capability '{capability}'.")
                     continue
             else:
                 # Prefer models with more capabilities
                 eligible_models.sort(key=lambda m: len(m.capabilities), reverse=True)
                 selected_model = eligible_models[0]
             
-            print(f"[Prewarm] Pre-warming {selected_model.name} for capability '{capability}'...")
+            logger.info(f"Pre-warming {selected_model.name} for capability '{capability}'...")
             
             # Create a PENDING deployment record flagged as permanent
             dep_id = str(uuid.uuid4())
@@ -640,9 +635,9 @@ class ChatService:
                     # Ensure is_permanent is preserved
                     ready_deployment.metadata["is_permanent"] = True
                     self._registry.update_deployment(ready_deployment)
-                    print(f"[Prewarm] Successfully pre-warmed baseline model: {selected_model.name}")
+                    logger.info(f"Successfully pre-warmed baseline model: {selected_model.name}")
             except Exception as e:
-                print(f"[Prewarm] Failed to pre-warm {selected_model.name}: {e}")
+                logger.error(f"Failed to pre-warm {selected_model.name}: {e}")
                 deployment.status = DeploymentStatus.FAILED
                 self._registry.update_deployment(deployment)
                 if self._gpu_tracker:
