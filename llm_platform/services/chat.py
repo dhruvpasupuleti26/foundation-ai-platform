@@ -505,22 +505,27 @@ class ChatService:
                 # Poll readiness health check
                 import httpx
                 import asyncio
-                url = f"http://localhost:{port}/v1/models"
+                url = f"http://127.0.0.1:{port}/v1/models"
                 ready = False
+                
+                logger.info(f"Waiting for vLLM container {container_name} to become healthy on port {port}...")
+                
                 async with httpx.AsyncClient() as client:
-                    for _ in range(360):  # 30 minutes (360 * 5s)
+                    for i in range(360):  # 30 minutes (360 * 5s)
                         try:
                             response = await client.get(url, timeout=2.0)
                             if response.status_code == 200:
                                 ready = True
                                 break
-                        except (httpx.ConnectError, httpx.TimeoutException, httpx.HTTPError):
+                        except (httpx.ConnectError, httpx.ReadTimeout, httpx.ConnectTimeout):
+                            if i > 0 and i % 6 == 0:  # Print every 30 seconds
+                                logger.info(f"Still waiting for {container_name} to boot... (takes 2-3 minutes for weights to load into GPU)")
                             pass
                         await asyncio.sleep(5)
                         
-                if not ready:
-                    await run_in_threadpool(cleanup_docker)
-                    raise RuntimeError(f"vLLM container for {model_record.name} failed to become healthy on port {port}")
+                    if not ready:
+                        await run_in_threadpool(cleanup_docker)
+                        raise RuntimeError(f"vLLM container for {model_record.name} failed to become healthy on port {port}")
             except Exception:
                 self._reserved_ports.discard(port)
                 raise
