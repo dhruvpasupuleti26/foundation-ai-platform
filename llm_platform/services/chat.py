@@ -583,6 +583,16 @@ class ChatService:
         logger.info(f"Pre-warming baseline models for capabilities: {capabilities}")
         models = self._registry.list_models()
         
+        # CLEAR old ghost deployments from previous runs so router doesn't hit dead ports
+        try:
+            from sqlmodel import Session, delete
+            from llm_platform.schemas.registry import DeploymentRecord as DBDeployment
+            with Session(self._registry.engine) as session:
+                session.exec(delete(DBDeployment))
+                session.commit()
+        except Exception as e:
+            pass
+        
         for capability in capabilities:
             # Find the best model for this capability
             eligible_models = [m for m in models if capability in m.capabilities]
