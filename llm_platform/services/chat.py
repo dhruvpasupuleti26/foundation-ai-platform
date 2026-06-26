@@ -378,6 +378,7 @@ class ChatService:
             metadata={
                 "architecture": report.architecture or "unknown",
                 "estimated_gpu_memory_gb": report.estimated_gpu_memory_gb or 0.0,
+                "max_context_length": report.max_context_length,
             }
         )
         model_record = self._registry.register_model(registration_request)
@@ -459,12 +460,18 @@ class ChatService:
                 # Mount it exactly where the huggingface hub inside the container expects it
                 container_path = "/root/.cache/huggingface/hub"
                 
-                # Build the vLLM command. We enforce a max-model-len of 4096 to prevent KV cache OOM
-                # on models that default to massive context windows (like DeepSeek's 128k).
-                # However, TinyLlama only supports 2048, so we must exclude it.
                 command = f"--model {model_record.name} --port {port} --host 0.0.0.0 --gpu-memory-utilization {utilization:.2f}"
-                if "tinyllama" not in model_record.name.lower():
-                    command += " --max-model-len 4096"
+                
+                # Determine the absolute maximum context window.
+                # We enforce a ceiling of 4096 to prevent KV cache OOM on massive context models (like DeepSeek).
+                max_ctx = model_record.metadata.get("max_context_length")
+                if max_ctx:
+                    capped_len = min(4096, max_ctx)
+                else:
+                    # Fallback for models already registered in the DB without max_context_length
+                    capped_len = 2048 if "tinyllama" in model_record.name.lower() else 4096
+                    
+                command += f" --max-model-len {capped_len}"
                 
                 # EAGLE Speculative Decoding
                 if model_record.vllm_eagle_head:
