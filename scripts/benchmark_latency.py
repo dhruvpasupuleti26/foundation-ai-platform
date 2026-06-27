@@ -26,7 +26,7 @@ def run_benchmark():
             
             for i in range(10):
                 payload = {
-                    "model": capability,
+                    "capability": capability,
                     "messages": [{"role": "user", "content": prompt}],
                     "max_tokens": 15
                 }
