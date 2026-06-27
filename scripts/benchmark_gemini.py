@@ -12,8 +12,8 @@ if not GEMINI_API_KEY:
     print("Example: export GEMINI_API_KEY='your_api_key_here'")
     sys.exit(1)
 
-# You can change this to gemini-1.5-flash for speed comparison!
-MODEL_NAME = "gemini-1.5-pro-latest"
+# Google completely deprecated 1.5 in 2026! We must use 2.5!
+MODEL_NAME = "gemini-2.5-pro"
 API_URL = f"https://generativelanguage.googleapis.com/v1beta/models/{MODEL_NAME}:generateContent?key={GEMINI_API_KEY}"
 
 CAPABILITIES = {
