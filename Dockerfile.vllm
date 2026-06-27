@@ -1,5 +1,5 @@
-# Use CUDA 12.7 base to perfectly match the host driver (NVIDIA-SMI 565 / CUDA 12.7)
-FROM nvidia/cuda:12.7.0-base-ubuntu22.04
+# Use CUDA 12.6 base (compatible with any driver >= 12.6, so your 12.7 driver will run it perfectly!)
+FROM nvidia/cuda:12.6.0-base-ubuntu22.04
 
 # Avoid tzdata interactive prompt during package installation
 ENV DEBIAN_FRONTEND=noninteractive
