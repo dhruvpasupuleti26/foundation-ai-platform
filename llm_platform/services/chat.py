@@ -449,8 +449,6 @@ class ChatService:
                     existing.remove(force=True)
                 except docker.errors.NotFound:
                     pass
-                    
-                device_request = docker.types.DeviceRequest(count=-1, capabilities=[['gpu']])
                 
                 # Ensure the cache directory exists before mounting
                 host_cache_path = Path(self._model_cache_dir).resolve()
@@ -487,7 +485,7 @@ class ChatService:
                     )
                 
                 return client.containers.run(
-                    image="vllm/vllm-openai:v0.4.2",
+                    image="vllm/vllm-openai:v0.22.1",
                     command=command,
                     name=container_name,
                     detach=True,
