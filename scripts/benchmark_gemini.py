@@ -13,7 +13,7 @@ if not GEMINI_API_KEY:
     sys.exit(1)
 
 # You can change this to gemini-1.5-flash for speed comparison!
-MODEL_NAME = "gemini-1.5-pro"
+MODEL_NAME = "gemini-1.5-pro-latest"
 API_URL = f"https://generativelanguage.googleapis.com/v1beta/models/{MODEL_NAME}:generateContent?key={GEMINI_API_KEY}"
 
 CAPABILITIES = {
