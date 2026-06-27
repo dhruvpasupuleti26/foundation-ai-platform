@@ -16,7 +16,7 @@ def run_benchmark():
     results = {}
     
     for capability, prompt in CAPABILITIES.items():
-        print(f"\n🚀 Benchmarking capability: '{capability}'")
+        print(f"\nBenchmarking capability: '{capability}'")
         
         # Accumulate metrics across all runs
         all_ttft = []
@@ -26,7 +26,7 @@ def run_benchmark():
         all_tokens = []
         
         for run_idx in range(4):
-            print(f"  ▶ Run {run_idx + 1}/4 (10 prompts)")
+            print(f"  [Run {run_idx + 1}/4] (10 prompts)")
             
             for i in range(10):
                 payload = {
@@ -95,13 +95,13 @@ def run_benchmark():
                 "E2EL_avg_s": round(statistics.mean(all_e2el), 3),
                 "Tokens_Per_Second": round(sum(all_tokens) / sum(all_e2el), 2)
             }
-            print(f"  ✅ {capability}: TTFT {results[capability]['TTFT_avg_ms']}ms | "
+            print(f"  [OK] {capability}: TTFT {results[capability]['TTFT_avg_ms']}ms | "
                   f"TPOT {results[capability]['TPOT_avg_ms']}ms | "
                   f"ITL {results[capability]['ITL_avg_ms']}ms | "
                   f"E2EL {results[capability]['E2EL_avg_s']}s")
             
     print("\n" + "="*60)
-    print("🏆 FINAL COMPREHENSIVE METRICS")
+    print("FINAL COMPREHENSIVE METRICS")
     print("="*60)
     print(json.dumps(results, indent=2))
 
