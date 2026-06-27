@@ -329,7 +329,7 @@ class PlatformApplicationBuilder:
                             )
                             deployment_repository.save(new_deployment)
                             vram = _read_model_vram_from_cache(d)
-                            print(f"[SSD Sync] Successfully registered {repo_id} as PENDING ({vram}GB VRAM from disk).")
+                            print(f"[SSD Sync] Successfully registered {repo_id} as PENDING.")
             
             existing_models = model_repository.list()
             print(f"[Bootstrap] Initialized with {len(existing_models)} models in registry.")
