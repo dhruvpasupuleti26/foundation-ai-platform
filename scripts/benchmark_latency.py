@@ -6,7 +6,7 @@ import json
 API_URL = "http://127.0.0.1:8000/chat/completions"
 
 CAPABILITIES = {
-    "chat": "Who is Tyrion Lannister?",
+    "chat": "Who is Tyrion Lannister? Explain in 3 short sentences.",
     "summarization": "Summarize this: The quick brown fox jumps over the lazy dog.",
     "reasoning": "Solve this: If I have 3 apples and eat 1, how many are left?",
     "math": "What is 15 * 24?"
@@ -17,46 +17,92 @@ def run_benchmark():
     
     for capability, prompt in CAPABILITIES.items():
         print(f"\n🚀 Benchmarking capability: '{capability}'")
-        latencies = []
         
-        # We will run 4 inference metric records, each doing 10 requests
+        # Accumulate metrics across all runs
+        all_ttft = []
+        all_tpot = []
+        all_itl = []
+        all_e2el = []
+        all_tokens = []
+        
         for run_idx in range(4):
             print(f"  ▶ Run {run_idx + 1}/4 (10 prompts)")
-            run_latencies = []
             
             for i in range(10):
                 payload = {
                     "capability": capability,
                     "messages": [{"role": "user", "content": prompt}],
-                    "max_tokens": 15
+                    "max_tokens": 50,
+                    "stream": True
                 }
                 
                 start_time = time.time()
+                first_token_time = None
+                last_token_time = None
+                token_times = []
+                tokens_received = 0
+                
                 try:
-                    resp = requests.post(API_URL, json=payload, timeout=30)
-                    resp.raise_for_status()
-                    latency = time.time() - start_time
-                    run_latencies.append(latency)
+                    # We stream the response to measure TTFT and ITL
+                    with requests.post(API_URL, json=payload, stream=True, timeout=30) as resp:
+                        resp.raise_for_status()
+                        for line in resp.iter_lines():
+                            if line:
+                                current_time = time.time()
+                                line = line.decode('utf-8')
+                                if line.startswith("data: "):
+                                    data_str = line[6:]
+                                    if data_str == "[DONE]":
+                                        break
+                                    
+                                    # We got a token chunk!
+                                    if first_token_time is None:
+                                        first_token_time = current_time
+                                    else:
+                                        # Record time since last token for ITL
+                                        token_times.append(current_time - last_token_time)
+                                        
+                                    last_token_time = current_time
+                                    tokens_received += 1
+                                    
+                    end_time = time.time()
+                    
+                    if first_token_time and tokens_received > 0:
+                        ttft = first_token_time - start_time
+                        e2el = end_time - start_time
+                        
+                        # TPOT: Total time spent generating tokens / number of tokens
+                        generation_time = end_time - first_token_time
+                        tpot = generation_time / tokens_received
+                        
+                        # ITL: Average of the inter-token intervals
+                        itl = statistics.mean(token_times) if token_times else tpot
+                        
+                        all_ttft.append(ttft)
+                        all_tpot.append(tpot)
+                        all_itl.append(itl)
+                        all_e2el.append(e2el)
+                        all_tokens.append(tokens_received)
+                        
                 except Exception as e:
                     print(f"    Request failed: {e}")
                     
-            if run_latencies:
-                avg_latency = statistics.mean(run_latencies)
-                print(f"    Avg Latency: {avg_latency:.3f} seconds")
-                latencies.extend(run_latencies)
-                
-        if latencies:
-            overall_avg = statistics.mean(latencies)
-            p90 = sorted(latencies)[int(len(latencies) * 0.9)]
+        if all_e2el:
             results[capability] = {
-                "overall_avg": overall_avg,
-                "p90": p90
+                "TTFT_avg_ms": round(statistics.mean(all_ttft) * 1000, 2),
+                "TPOT_avg_ms": round(statistics.mean(all_tpot) * 1000, 2),
+                "ITL_avg_ms": round(statistics.mean(all_itl) * 1000, 2),
+                "E2EL_avg_s": round(statistics.mean(all_e2el), 3),
+                "Tokens_Per_Second": round(sum(all_tokens) / sum(all_e2el), 2)
             }
-            print(f"  ✅ Capability '{capability}' Overall Avg: {overall_avg:.3f}s | P90: {p90:.3f}s")
+            print(f"  ✅ {capability}: TTFT {results[capability]['TTFT_avg_ms']}ms | "
+                  f"TPOT {results[capability]['TPOT_avg_ms']}ms | "
+                  f"ITL {results[capability]['ITL_avg_ms']}ms | "
+                  f"E2EL {results[capability]['E2EL_avg_s']}s")
             
-    print("\n" + "="*40)
-    print("🏆 FINAL METRICS")
-    print("="*40)
+    print("\n" + "="*60)
+    print("🏆 FINAL COMPREHENSIVE METRICS")
+    print("="*60)
     print(json.dumps(results, indent=2))
 
 if __name__ == "__main__":
