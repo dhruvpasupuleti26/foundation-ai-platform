@@ -13,7 +13,8 @@ if not GEMINI_API_KEY:
     sys.exit(1)
 
 # Google completely deprecated 1.5 in 2026! We must use 2.5!
-MODEL_NAME = "gemini-2.5-pro"
+# Google blocks 2.5-pro for free tier accounts. We MUST use 2.5-flash!
+MODEL_NAME = "gemini-2.5-flash"
 API_URL = f"https://generativelanguage.googleapis.com/v1beta/models/{MODEL_NAME}:generateContent?key={GEMINI_API_KEY}"
 
 CAPABILITIES = {

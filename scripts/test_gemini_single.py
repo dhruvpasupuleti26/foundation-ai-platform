@@ -9,7 +9,8 @@ if not GEMINI_API_KEY:
     print("Error: Please set the GEMINI_API_KEY environment variable.")
     sys.exit(1)
 
-MODEL_NAME = "gemini-2.5-pro"
+# Google blocks 2.5-pro for free tier accounts. We MUST use 2.5-flash!
+MODEL_NAME = "gemini-2.5-flash"
 API_URL = f"https://generativelanguage.googleapis.com/v1beta/models/{MODEL_NAME}:generateContent?key={GEMINI_API_KEY}"
 
 print(f"Sending a single test request to {MODEL_NAME}...\n")
