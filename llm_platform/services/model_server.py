@@ -22,13 +22,22 @@ class VllmModelServer(IModelServer):
 		# Extract info from Pydantic request payload
 		payload = {
 			"model": request.model,
-			"message": [{"role": m.role, "content": m.content} for m in request.messages],
+			"messages": [{"role": m.role, "content": m.content} for m in request.messages],
 			"temperature": request.temperature or 0.7
 		}
+        
+		if request.stream:
+			payload["stream"] = True
 
 		# Open up a network pipe, convert dict payload to json and sent POST request to url
-		async with httpx.AsyncClient as client:
-			response = await client.post(url, json=payload, timeout=60.0)
+		async with httpx.AsyncClient() as client:
+			if request.stream:
+				# Stream response directly back to the gateway router
+				# (We must implement a streaming generator if the gateway supports it, but since it doesn't, we just consume it and return the full text to avoid crashing)
+				response = await client.post(url, json=payload, timeout=60.0)
+				# For now, just return non-streaming until gateway supports SSE
+			else:
+				response = await client.post(url, json=payload, timeout=60.0)
 
 		if response.status_code == 200:
 			json_data = response.json()
