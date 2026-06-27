@@ -51,6 +51,12 @@ def run_gemini_benchmark():
                 start_time = time.time()
                 try:
                     resp = requests.post(API_URL, json=payload, timeout=30)
+                    
+                    if resp.status_code == 429:
+                        print("    Hit Gemini API rate limit! Waiting 60 seconds before continuing...")
+                        time.sleep(60)
+                        resp = requests.post(API_URL, json=payload, timeout=30)
+                        
                     resp.raise_for_status()
                     end_time = time.time()
                     
@@ -76,6 +82,10 @@ def run_gemini_benchmark():
                     all_itl.append(itl)
                     all_e2el.append(e2el)
                     all_tokens.append(tokens_received)
+                    
+                    # Google free tier allows max 15 requests per minute.
+                    # We must sleep for 4 seconds between requests to avoid getting banned!
+                    time.sleep(4.1)
                         
                 except Exception as e:
                     print(f"    Request failed: {e}")
