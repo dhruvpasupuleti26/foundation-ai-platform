@@ -8,6 +8,9 @@ const personaDesc = document.getElementById('current-persona-desc');
 
 const API_URL = "http://localhost:8000/v1/chat/completions";
 
+// Shared conversation history across all model/capability switches
+let conversationHistory = [];
+
 const personaData = {
     "chat": {
         title: "Tyrion Lannister",
@@ -54,9 +57,18 @@ personaSelect.addEventListener('change', (e) => {
     const data = personaData[capability];
     personaTitle.innerHTML = `<i class="fas ${data.icon}"></i> ${data.title}`;
     personaDesc.textContent = data.desc;
-    
-    // Optional: clear chat when switching persona
-    // chatHistory.innerHTML = '';
+    // Context is intentionally preserved across persona switches
+});
+
+// Clear Context Button
+document.getElementById('clear-context-btn').addEventListener('click', () => {
+    conversationHistory = [];
+    chatHistory.innerHTML = `
+        <div class="message system-message fade-in">
+            <div class="avatar"><i class="fas fa-robot"></i></div>
+            <div class="message-content">Context cleared. Starting a fresh conversation.</div>
+        </div>
+    `;
 });
 
 // Create Message Element
@@ -125,8 +137,9 @@ chatForm.addEventListener('submit', async (e) => {
     
     const capability = personaSelect.value;
     
-    // Add User Message
+    // Add User Message to UI and to shared history
     appendMessage('user', prompt);
+    conversationHistory.push({ role: 'user', content: prompt });
     
     // Reset Input
     promptInput.value = '';
@@ -144,7 +157,8 @@ chatForm.addEventListener('submit', async (e) => {
             },
             body: JSON.stringify({
                 capability: capability,
-                messages: [{ role: 'user', content: prompt }]
+                // Send the full shared history so every model has full context
+                messages: conversationHistory
             })
         });
         
@@ -158,7 +172,10 @@ chatForm.addEventListener('submit', async (e) => {
         const data = await response.json();
         
         if (data.choices && data.choices.length > 0) {
-            appendMessage('system', data.choices[0].message.content);
+            const reply = data.choices[0].message.content;
+            // Add assistant reply to shared history so next model knows what was said
+            conversationHistory.push({ role: 'assistant', content: reply });
+            appendMessage('system', reply);
         } else {
             appendMessage('system', "Error: No response generated.");
         }
