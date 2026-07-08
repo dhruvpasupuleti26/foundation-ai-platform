@@ -414,24 +414,29 @@ class ChatService:
         from llm_platform.schemas.registry import DeploymentRecord
         import uuid
         
-        # Find free port starting at 8002 atomically
-        port = 8002
-        async with self._port_lock:
-            while True:
-                if port not in self._reserved_ports:
-                    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-                        try:
-                            s.bind(("127.0.0.1", port))
-                            self._reserved_ports.add(port)
-                            break
-                        except OSError:
-                            pass
-                port += 1
-                    
-        sanitized_name = model_record.name.replace("/", "-").replace(".", "-").replace(":", "-").lower()
-        container_name = f"vllm-{sanitized_name}"
-        
         async with _global_boot_lock:
+            # Re-check DB inside lock in case a concurrent task just finished booting it
+            if existing_deployment:
+                refreshed = self._registry.get_deployment(existing_deployment.deployment_id)
+                if refreshed.status == DeploymentStatus.READY:
+                    return refreshed
+                    
+            # Find free port starting at 8002 atomically
+            port = 8002
+            async with self._port_lock:
+                while True:
+                    if port not in self._reserved_ports:
+                        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                            try:
+                                s.bind(("127.0.0.1", port))
+                                self._reserved_ports.add(port)
+                                break
+                            except OSError:
+                                pass
+                    port += 1
+                    
+            sanitized_name = model_record.name.replace("/", "-").replace(".", "-").replace(":", "-").lower()
+            container_name = f"vllm-{sanitized_name}"
             # vLLM's --gpu-memory-utilization allocates an absolute fraction of the physical GPU exclusively for this process.
             # To ensure models can coexist without crashing (OOM), we just divide the model's required memory by the total GPU memory.
             # We guarantee at least 2.5GB or 1.5x the estimated requirement, whichever is higher.
@@ -446,6 +451,9 @@ class ChatService:
                 client = docker.from_env()
                 try:
                     existing = client.containers.get(container_name)
+                    # If it's already running, don't kill it!
+                    if existing.status == "running":
+                        return existing
                     existing.remove(force=True)
                 except docker.errors.NotFound:
                     pass
