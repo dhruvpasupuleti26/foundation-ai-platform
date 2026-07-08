@@ -146,8 +146,12 @@ chatForm.addEventListener('submit', async (e) => {
     promptInput.style.height = 'auto';
     sendBtn.disabled = true;
     
-    // Add Typing Indicator
+    // Add Typng Indicator
     appendTypingIndicator();
+    
+    // Create an AbortController to explicitly set a 5-minute timeout
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 300000); // 5 minutes
     
     try {
         const response = await fetch(API_URL, {
@@ -157,11 +161,12 @@ chatForm.addEventListener('submit', async (e) => {
             },
             body: JSON.stringify({
                 capability: capability,
-                // Send the full shared history so every model has full context
                 messages: conversationHistory
-            })
+            }),
+            signal: controller.signal
         });
         
+        clearTimeout(timeoutId);
         removeTypingIndicator();
         
         if (!response.ok) {

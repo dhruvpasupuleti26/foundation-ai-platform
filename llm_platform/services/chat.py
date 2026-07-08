@@ -525,7 +525,7 @@ class ChatService:
                 # Poll readiness health check
                 import httpx
                 import asyncio
-                url = f"http://localhost:{port}/v1/models"
+                url = f"http://127.0.0.1:{port}/v1/models"
                 ready = False
                 async with httpx.AsyncClient() as client:
                     for _ in range(360):  # 30 minutes (360 * 5s)
@@ -545,7 +545,7 @@ class ChatService:
                 self._reserved_ports.discard(port)
                 raise
             
-        endpoint = f"http://localhost:{port}"
+        endpoint = f"http://127.0.0.1:{port}"
         
         if existing_deployment:
             existing_deployment.endpoint = endpoint

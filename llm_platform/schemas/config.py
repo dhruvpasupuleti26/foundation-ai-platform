@@ -112,7 +112,7 @@ class OpenAICompatibleBackendConfig(BaseModel):
     models_path: str = "/v1/models"
     chat_completions_path: str = "/v1/chat/completions"
     metrics_path: str = "/metrics"
-    request_timeout_seconds: float = 60.0
+    request_timeout_seconds: float = 300.0
     default_remote_model: str | None = None
 
 
