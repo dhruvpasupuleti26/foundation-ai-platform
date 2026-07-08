@@ -453,7 +453,14 @@ class ChatService:
                     existing = client.containers.get(container_name)
                     # If it's already running, don't kill it!
                     if existing.status == "running":
-                        return existing
+                        cmd = existing.attrs.get("Config", {}).get("Cmd", [])
+                        try:
+                            port_idx = cmd.index("--port")
+                            actual_port = int(cmd[port_idx + 1])
+                            return existing, actual_port
+                        except (ValueError, IndexError):
+                            pass
+                        return existing, None
                     existing.remove(force=True)
                 except docker.errors.NotFound:
                     pass
@@ -520,7 +527,15 @@ class ChatService:
                     pass
                 
             try:
-                await run_in_threadpool(run_docker)
+                result = await run_in_threadpool(run_docker)
+                if isinstance(result, tuple):
+                    container, actual_port = result
+                    if actual_port and actual_port != port:
+                        self._reserved_ports.discard(port)
+                        port = actual_port
+                        self._reserved_ports.add(port)
+                else:
+                    container = result
                 
                 # Poll readiness health check
                 import httpx
