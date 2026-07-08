@@ -593,13 +593,16 @@ class ChatService:
         
         # CLEAR old ghost deployments from previous runs so router doesn't hit dead ports
         try:
-            from sqlmodel import Session, delete
-            from llm_platform.schemas.registry import DeploymentRecord as DBDeployment
-            with Session(self._registry.engine) as session:
-                session.exec(delete(DBDeployment))
-                session.commit()
+            repo = getattr(self._registry, "_deployment_repository", None)
+            if repo and hasattr(repo, "_session_factory"):
+                from sqlalchemy import delete
+                from llm_platform.database.models import DeploymentTable, LifecycleTable
+                with repo._session_factory() as session:
+                    session.execute(delete(LifecycleTable))
+                    session.execute(delete(DeploymentTable))
+                    session.commit()
         except Exception as e:
-            pass
+            logger.error(f"Failed to clear ghost deployments: {e}")
         
         for capability in capabilities:
             # Find the best model for this capability
