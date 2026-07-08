@@ -20,6 +20,7 @@ def upgrade() -> None:
         sa.Column("family", sa.String(length=128), nullable=False),
         sa.Column("engine", sa.String(length=128), nullable=False),
         sa.Column("capabilities", sa.JSON(), nullable=False),
+        sa.Column("vllm_eagle_head", sa.Boolean(), nullable=True),
         sa.Column("memory_requirement_gb", sa.Integer(), nullable=False),
         sa.Column("ownership", sa.String(length=255), nullable=False),
         sa.Column("status", sa.String(length=32), nullable=False),
